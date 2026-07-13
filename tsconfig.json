@@ -22,10 +22,9 @@
     "noUncheckedSideEffectImports": true,
 
     /* Path aliases — reinforce the core/ vs react/ boundary */
-    "baseUrl": ".",
     "paths": {
-      "@core/*": ["src/core/*"],
-      "@react/*": ["src/react/*"]
+      "@core/*": ["./src/core/*"],
+      "@react/*": ["./src/react/*"]
     }
   },
   "include": ["src"]
