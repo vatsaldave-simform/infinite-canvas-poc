@@ -8,3 +8,5 @@ export type {
   SceneElement,
   Scene,
 } from './types'
+
+export { sampleScene } from './sample'
