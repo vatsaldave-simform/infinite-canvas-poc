@@ -1,17 +1,8 @@
 /**
- * Scene rendering (Milestone 4).
- *
- * Draws each SceneElement onto a 2D context for a given Viewport. Pure Canvas2D
- * and framework-agnostic: no React, no device-pixel-ratio. The caller sets the
- * DPR transform and clears the canvas (see `usePanZoom`); this module draws in
- * CSS-pixel space using `worldToScreen`, exactly like `grid.ts`.
- *
- * Element geometry lives in WORLD units; `strokeWidth` is documented as
- * "world-unit pixels", so screen sizes and stroke widths are multiplied by
- * `viewport.scale` — shapes and their outlines zoom together.
- *
- * This is rendering only. Creating/mutating elements is store logic (M5), and
- * picking the element under a point is hit-testing (M6) — neither lives here.
+ * Draws each SceneElement for a given Viewport. Pure Canvas2D in CSS-pixel space
+ * via `worldToScreen`; the caller sets the DPR transform and clears the canvas.
+ * Geometry is in world units and `strokeWidth` in world-unit pixels, so sizes
+ * and strokes are multiplied by `viewport.scale` — shapes zoom together.
  */
 
 import type { Scene, SceneElement } from "@core/scene";
@@ -32,7 +23,8 @@ export function renderScene(
   }
 }
 
-function drawElement(
+/** Paint a single element — used for the in-progress draft overlay. */
+export function drawElement(
   ctx: CanvasRenderingContext2D,
   el: SceneElement,
   viewport: Viewport,

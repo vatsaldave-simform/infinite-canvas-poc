@@ -11,4 +11,4 @@ export {
   scaleFromWheel,
 } from "./viewport";
 export { drawReferenceGrid } from "./grid";
-export { renderScene } from "./render";
+export { renderScene, drawElement } from "./render";

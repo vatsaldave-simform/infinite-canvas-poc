@@ -1,15 +1,7 @@
 /**
- * Reference grid (Milestone 3 — debug aid).
- *
- * A world-space grid so pan/zoom is *visible* before real scene rendering
- * (M4) exists. Lines live at fixed world coordinates, so they pan and zoom
- * with the viewport exactly like elements will — panning slides the grid,
- * zooming spreads or tightens it, and the world origin's axes stay pinned to
- * their world position.
- *
- * Pure Canvas2D: no React, no device-pixel-ratio. The caller sets the DPR
- * transform and clears the canvas; this function only strokes lines and works
- * entirely in CSS pixels.
+ * World-space reference grid: lines at fixed world coordinates, so they pan and
+ * zoom with the viewport (origin axes stay pinned). Pure Canvas2D in CSS
+ * pixels — the caller sets the DPR transform and clears the canvas.
  */
 
 import type { Point } from "@core/scene";

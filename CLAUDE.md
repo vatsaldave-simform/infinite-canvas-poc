@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-An infinite-canvas drawing engine (Excalidraw-style) built as a POC. Rendering targets a single HTML `<canvas>`. The project is being built in numbered milestones (M0, M1, …); source comments reference future milestones by number (e.g. "arrives in M5", "hit-testing (M6)") to explain what a file intentionally does *not* do yet. Respect that staging — don't pull work forward into a file whose comment says it belongs to a later milestone unless asked.
+An infinite-canvas drawing engine (Excalidraw-style) built as a POC. Rendering targets a single HTML `<canvas>`. The project is built one numbered milestone at a time (M0, M1, …); the roadmap and per-milestone plans live in `.claude/plans/` (index at `.claude/plans/README.md`), not in source comments. Respect that staging — don't pull work forward from a later milestone into an earlier one unless asked. For how the pieces fit together at runtime, see `ARCHITECTURE.md`.
 
 ## Commands
 

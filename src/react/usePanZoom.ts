@@ -1,48 +1,46 @@
 import { useCallback, useEffect, useRef, type RefObject } from 'react'
 import {
   clampScale,
+  drawElement,
   drawReferenceGrid,
   renderScene,
   scaleFromWheel,
   zoomAtPoint,
   type Viewport,
 } from '@core/canvas'
-import type { Scene } from '@core/scene'
+import type { Scene, SceneElement } from '@core/scene'
 
 /**
- * usePanZoom (Milestone 3) — owns the live Viewport and translates wheel/pinch
- * gestures into pan/zoom, then paints the debug reference grid.
- *
- * Excalidraw-style input:
- *   - plain wheel / two-finger scroll  → pan
- *   - Ctrl/Cmd + wheel, trackpad pinch → zoom at the cursor
- *     (browsers deliver a pinch as a wheel event with ctrlKey = true)
- *
- * The viewport lives in a ref, not state: wheel events fire in bursts and none
- * of them need to re-render React — only the canvas repaints, batched through
- * requestAnimationFrame. The actual gesture→scale math lives in core/ (see
- * `scaleFromWheel`/`clampScale`); this hook is pure plumbing.
+ * Owns the live Viewport, the wheel-driven pan/zoom input, and the rAF-batched
+ * render loop (grid → scene → draft). Viewport + scene live in refs so bursts of
+ * events repaint the canvas without re-rendering React. Excalidraw-style input:
+ * plain wheel/scroll pans, Ctrl/Cmd+wheel or pinch zooms at the cursor.
+ * See ARCHITECTURE.md ("The render loop").
  */
 
-// Wheel deltas vary wildly by device: trackpad pinch emits small pixel deltas,
-// mouse wheels emit large ones — and some report lines/pages, not pixels. We
-// normalize to pixels and cap the magnitude here (the device-adapter layer) so
-// core's zoom math stays device-agnostic and one mouse notch can't leap several
-// zoom levels. Small pinch deltas pass through untouched.
+// Normalize wheel deltas to pixels and cap magnitude, so core's zoom math stays
+// device-agnostic and one mouse notch can't leap several zoom levels.
 const LINE_HEIGHT_PX = 16
 const PAGE_HEIGHT_PX = 400
 const MAX_ZOOM_DELTA = 20
 
+// Line/page-mode wheel events report deltas in lines/pages, not pixels; scale
+// them so pan and zoom behave the same across devices and browsers.
+function deltaModeScale(deltaMode: number): number {
+  if (deltaMode === 1) return LINE_HEIGHT_PX // WheelEvent.DOM_DELTA_LINE
+  if (deltaMode === 2) return PAGE_HEIGHT_PX // WheelEvent.DOM_DELTA_PAGE
+  return 1
+}
+
 function normalizeZoomDelta(e: WheelEvent): number {
-  let dy = e.deltaY
-  if (e.deltaMode === 1) dy *= LINE_HEIGHT_PX // WheelEvent.DOM_DELTA_LINE
-  else if (e.deltaMode === 2) dy *= PAGE_HEIGHT_PX // WheelEvent.DOM_DELTA_PAGE
+  const dy = e.deltaY * deltaModeScale(e.deltaMode)
   return Math.max(-MAX_ZOOM_DELTA, Math.min(MAX_ZOOM_DELTA, dy))
 }
 
 export function usePanZoom(
   canvasRef: RefObject<HTMLCanvasElement | null>,
   scene: Scene,
+  draftRef: RefObject<SceneElement | null>,
 ) {
   const viewportRef = useRef<Viewport>({ offsetX: 0, offsetY: 0, scale: 1 })
   const frameRef = useRef<number | null>(null)
@@ -66,7 +64,10 @@ export function usePanZoom(
     ctx.clearRect(0, 0, cssWidth, cssHeight)
     drawReferenceGrid(ctx, viewportRef.current, cssWidth, cssHeight)
     renderScene(ctx, sceneRef.current, viewportRef.current)
-  }, [canvasRef])
+    // Draw the in-progress draft (if any) on top of the committed scene.
+    const draft = draftRef.current
+    if (draft) drawElement(ctx, draft, viewportRef.current)
+  }, [canvasRef, draftRef])
 
   const scheduleRender = useCallback(() => {
     if (frameRef.current != null) return
@@ -94,11 +95,13 @@ export function usePanZoom(
         const newScale = clampScale(scaleFromWheel(vp.scale, normalizeZoomDelta(e)))
         viewportRef.current = zoomAtPoint(vp, anchor, newScale)
       } else {
-        // Pan: the gesture slides the world beneath the viewport.
+        // Pan: the gesture slides the world beneath the viewport. Normalize
+        // line/page-mode deltas so panning matches the zoom path's units.
+        const scale = deltaModeScale(e.deltaMode)
         viewportRef.current = {
           ...vp,
-          offsetX: vp.offsetX - e.deltaX,
-          offsetY: vp.offsetY - e.deltaY,
+          offsetX: vp.offsetX - e.deltaX * scale,
+          offsetY: vp.offsetY - e.deltaY * scale,
         }
       }
 

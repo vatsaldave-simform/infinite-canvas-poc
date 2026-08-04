@@ -1,12 +1,7 @@
 /**
- * Scene element data model.
- *
- * This is the shared vocabulary the whole engine speaks — rendering (M4),
- * hit-testing (M6), move (M8), persistence (M9+), and undo (M13) all operate
- * on these shapes. Pure types only: no factories, no id generation, no store
- * mutation. Those are "store logic" and arrive in M5.
- *
- * Framework-agnostic (core/): no React, no DOM assumptions beyond plain data.
+ * Scene element data model — the shared vocabulary the whole engine speaks.
+ * Pure types only (no factories/store logic). Framework-agnostic: no React, no
+ * DOM assumptions beyond plain data.
  */
 
 /** A 2D point. In freehand elements, stored as an offset from the element's (x, y). */

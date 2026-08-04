@@ -1,10 +1,6 @@
 /**
- * Sample scene fixture (Milestone 4 — verification only).
- *
- * A hardcoded Scene used to eyeball / pixel-test the renderer before the store
- * (M5) can create real elements. IDs are plain strings here because id
- * generation is store logic (M5). Not imported by the running app — the app
- * renders an empty scene until M5 wires in the store.
+ * Sample scene fixture — a hardcoded Scene for eyeballing / pixel-testing the
+ * renderer. Not used by the running app.
  */
 
 import type { Scene } from "./types";

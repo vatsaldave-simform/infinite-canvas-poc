@@ -1,22 +1,27 @@
-import { useEffect, useRef } from "react";
-import type { Scene } from "@core/scene";
+import { useEffect, useRef, useState } from "react";
+import { createSceneStore, type SceneElement } from "@core/scene";
 import { usePanZoom } from "./usePanZoom";
-
-// Stable empty scene so the render effect isn't retriggered every render.
-const EMPTY_SCENE: Scene = [];
+import { useSceneStore } from "./useSceneStore";
+import { useDrawTool, type Tool } from "./useDrawTool";
+import { Toolbar } from "./Toolbar";
 
 /**
- * CanvasBoard — owns the <canvas> DOM node, keeps it sized to the viewport
- * (HiDPI-crisp, M0), wires pan/zoom (M3), and renders the scene (M4).
- *
- * Gesture handling, the reference grid, and scene rendering live in
- * usePanZoom / core; this component just owns the element and its sizing.
+ * CanvasBoard — owns the <canvas> DOM node and its HiDPI sizing, and wires the
+ * pan/zoom, draw tool, and toolbar together. Scene state lives in the core
+ * SceneStore; this component only subscribes and wires DOM/pointer events.
  */
 export function CanvasBoard() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  // Empty until M5's store supplies a real scene. (Swap for `sampleScene` from
-  // '@core/scene' to visually verify the M4 renderer.)
-  const { scheduleRender } = usePanZoom(canvasRef, EMPTY_SCENE);
+  // The scene store lives in core/; created once and subscribed to via React.
+  const [store] = useState(() => createSceneStore());
+  const scene = useSceneStore(store);
+
+  const [tool, setTool] = useState<Tool>("rectangle");
+  // In-progress shape, shared with the render loop so it paints on top.
+  const draftRef = useRef<SceneElement | null>(null);
+
+  const { viewportRef, scheduleRender } = usePanZoom(canvasRef, scene, draftRef);
+  useDrawTool({ canvasRef, viewportRef, scheduleRender, store, tool, draftRef });
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -42,5 +47,10 @@ export function CanvasBoard() {
     return () => window.removeEventListener("resize", resize);
   }, [scheduleRender]);
 
-  return <canvas ref={canvasRef} />;
+  return (
+    <>
+      <Toolbar tool={tool} onToolChange={setTool} />
+      <canvas ref={canvasRef} />
+    </>
+  );
 }
