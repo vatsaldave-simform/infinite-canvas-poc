@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createSceneStore, type SceneElement } from "@core/scene";
 import { usePanZoom } from "./usePanZoom";
-import { useSceneStore } from "./useSceneStore";
 import { useDrawTool, type Tool } from "./useDrawTool";
 import { Toolbar } from "./Toolbar";
 
@@ -12,15 +11,16 @@ import { Toolbar } from "./Toolbar";
  */
 export function CanvasBoard() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  // The scene store lives in core/; created once and subscribed to via React.
+  // The scene store lives in core/; created once. usePanZoom subscribes to it
+  // outside React render, so committing a shape repaints the canvas without
+  // re-rendering this component or the toolbar.
   const [store] = useState(() => createSceneStore());
-  const scene = useSceneStore(store);
 
   const [tool, setTool] = useState<Tool>("rectangle");
   // In-progress shape, shared with the render loop so it paints on top.
   const draftRef = useRef<SceneElement | null>(null);
 
-  const { viewportRef, scheduleRender } = usePanZoom(canvasRef, scene, draftRef);
+  const { viewportRef, scheduleRender } = usePanZoom(canvasRef, store, draftRef);
   useDrawTool({ canvasRef, viewportRef, scheduleRender, store, tool, draftRef });
 
   useEffect(() => {

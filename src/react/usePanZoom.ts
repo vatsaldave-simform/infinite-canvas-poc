@@ -8,7 +8,7 @@ import {
   zoomAtPoint,
   type Viewport,
 } from '@core/canvas'
-import type { Scene, SceneElement } from '@core/scene'
+import type { Scene, SceneElement, SceneStore } from '@core/scene'
 
 /**
  * Owns the live Viewport, the wheel-driven pan/zoom input, and the rAF-batched
@@ -39,14 +39,14 @@ function normalizeZoomDelta(e: WheelEvent): number {
 
 export function usePanZoom(
   canvasRef: RefObject<HTMLCanvasElement | null>,
-  scene: Scene,
+  store: SceneStore,
   draftRef: RefObject<SceneElement | null>,
 ) {
   const viewportRef = useRef<Viewport>({ offsetX: 0, offsetY: 0, scale: 1 })
   const frameRef = useRef<number | null>(null)
   // Scene lives in a ref so pan/zoom repaints read the latest without the
   // render callback re-subscribing the wheel listener on every scene change.
-  const sceneRef = useRef<Scene>(scene)
+  const sceneRef = useRef<Scene>(store.getScene())
 
   const render = useCallback(() => {
     frameRef.current = null
@@ -74,11 +74,17 @@ export function usePanZoom(
     frameRef.current = requestAnimationFrame(render)
   }, [render])
 
-  // Keep the scene ref current and repaint when the scene changes.
+  // Subscribe to the store here — outside React's render — so committing a
+  // shape repaints the canvas via the ref/rAF path without re-rendering
+  // CanvasBoard or the toolbar.
   useEffect(() => {
-    sceneRef.current = scene
-    scheduleRender()
-  }, [scene, scheduleRender])
+    const sync = () => {
+      sceneRef.current = store.getScene()
+      scheduleRender()
+    }
+    sync()
+    return store.subscribe(sync)
+  }, [store, scheduleRender])
 
   useEffect(() => {
     const canvas = canvasRef.current
