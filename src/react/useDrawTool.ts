@@ -4,6 +4,7 @@ import {
   createRectangle,
   createEllipse,
   createFreehand,
+  hitTest,
   normalizeRect,
   DEFAULT_STYLE,
   type FreehandElement,
@@ -17,6 +18,9 @@ export type Tool = 'select' | 'rectangle' | 'ellipse' | 'freehand'
 
 /** Drags smaller than this (world units) are treated as a click, not a shape. */
 const MIN_DRAG_SIZE = 2
+
+/** Click slop for hit-testing, in SCREEN px; divided by scale → world tolerance. */
+const HIT_SLOP_PX = 6
 
 /** Placeholder id for the in-progress draft — never committed to the scene. */
 const DRAFT_ID = 'draft'
@@ -49,14 +53,6 @@ export function useDrawTool({
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    if (tool === 'select') return // nothing to draw
-
-    // Two-corner drag (rectangle/ellipse); null when idle or drawing freehand.
-    let start: Point | null = null
-    // Accumulated world points (freehand); null when idle or drawing a drag shape.
-    let freehandPoints: Point[] | null = null
-    // The freehand draft, grown in place per move so we never remap all points.
-    let freehandDraft: FreehandElement | null = null
 
     // Pointer position → world point, using the current viewport.
     const toWorld = (e: PointerEvent): Point => {
@@ -66,6 +62,32 @@ export function useDrawTool({
         viewportRef.current,
       )
     }
+
+    // --- M6 throwaway probe: verifies hit-testing until M7 adds real selection.
+    // In select mode, clicking logs the topmost element under the cursor (or a
+    // miss). Tolerance is a constant screen slop → world units via / scale.
+    // TODO(M7): remove — replace with real selection state.
+    if (tool === 'select') {
+      const onProbeDown = (e: PointerEvent) => {
+        if (e.button !== 0) return
+        const world = toWorld(e)
+        const tolerance = HIT_SLOP_PX / viewportRef.current.scale
+        const hit = hitTest(store.getScene(), world, tolerance)
+        console.log(
+          hit ? `hit: ${hit.type} ${hit.id}` : 'miss',
+          { world, tolerance },
+        )
+      }
+      canvas.addEventListener('pointerdown', onProbeDown)
+      return () => canvas.removeEventListener('pointerdown', onProbeDown)
+    }
+
+    // Two-corner drag (rectangle/ellipse); null when idle or drawing freehand.
+    let start: Point | null = null
+    // Accumulated world points (freehand); null when idle or drawing a drag shape.
+    let freehandPoints: Point[] | null = null
+    // The freehand draft, grown in place per move so we never remap all points.
+    let freehandDraft: FreehandElement | null = null
 
     // Draft carries a placeholder id and its own style copy — it isn't committed
     // until pointerup, and must never share DEFAULT_STYLE by reference.

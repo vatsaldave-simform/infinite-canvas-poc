@@ -19,3 +19,11 @@ export {
   freehandGeometry,
   DEFAULT_STYLE,
 } from './factory'
+export {
+  hitTest,
+  hitTestElement,
+  hitTestRectangle,
+  hitTestEllipse,
+  hitTestFreehand,
+  distanceToSegment,
+} from './hit-test'
