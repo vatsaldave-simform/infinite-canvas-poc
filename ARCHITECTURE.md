@@ -55,7 +55,8 @@ Each frame (`render`):
 2. `clearRect`
 3. `drawReferenceGrid(...)` — world-space grid (`src/core/canvas/grid.ts`), a visual aid.
 4. `renderScene(ctx, scene, viewport)` — the committed elements (`src/core/canvas/render.ts`).
-5. the in-progress **draft** element, if any, painted on top.
+5. the **selection highlight**, if an element is selected — a dashed box around its bounding box (`drawSelectionBox`), editor chrome drawn over the scene.
+6. the in-progress **draft** element, if any, painted on top.
 
 `scheduleRender()` coalesces calls: if a frame is already pending, it no-ops.
 
@@ -84,11 +85,20 @@ Drawing uses **pointer** events (`src/react/useDrawTool.ts`), so it never collid
 
 React binds to it through `useSyncExternalStore` (`src/react/useSceneStore.ts`). Immutable updates + stable snapshots are what make change-detection cheap and keep the door open for undo later.
 
+### Selection & editor state
+
+Selection is **editor state, not document state** — it is *not* part of the scene and will *not* be persisted (Excalidraw's `elements` vs `appState` split). It lives in a separate observable, `src/core/editor/store.ts` (`createEditorStore`), built the same way as the scene store:
+
+- `getSelectedId()` / `select(id | null)` / `subscribe(fn)` — holds a single selected **id**, or `null`.
+- Selection references an element **by id, not by object**: immutable mutations (e.g. moving in M8) replace the element with a new object, and an id stays valid across that where a captured reference would go stale.
+
+`usePanZoom` subscribes to it alongside the scene store and repaints via the same ref/rAF path; the render loop looks the id up in the current scene and draws the highlight (step 5 above). In **select** mode, `useDrawTool` sets the selection on click (empty click clears), shows a pointer cursor on hover over a hittable element, and clears on `Escape`; drawing any shape auto-selects it.
+
 ## Creating elements
 
 `src/core/scene/factory.ts` turns raw input into well-formed elements: assigns an `id` (`crypto.randomUUID()`), applies `DEFAULT_STYLE`, and **normalizes geometry**. `createRectangle` / `createEllipse` convert two drag corners to a non-negative origin + size (`normalizeRect`); `createFreehand` converts a run of absolute world points into an origin + relative offsets (`freehandGeometry`). The types permit signed width/height mid-drag; normalization happens here at creation time.
 
-Draw flow (`useDrawTool`): the toolbar picks a tool (`rectangle` / `ellipse` / `freehand`, plus an inert `select`). Rectangle and ellipse are two-corner drags (`pointerdown` start → `pointermove` resize); freehand captures a point per `pointermove`. Either way a *draft* element is kept in a ref and painted on top; `pointerup` finalizes via the factory and commits with `store.addElement`. Tiny drags / too-few points are ignored (no zero-size shapes).
+Draw flow (`useDrawTool`): the toolbar picks a tool (`rectangle` / `ellipse` / `freehand`, plus `select` — see *Selection & editor state*). Rectangle and ellipse are two-corner drags (`pointerdown` start → `pointermove` resize); freehand captures a point per `pointermove`. Either way a *draft* element is kept in a ref and painted on top; `pointerup` finalizes via the factory and commits with `store.addElement`. Tiny drags / too-few points are ignored (no zero-size shapes).
 
 ## File map
 
@@ -100,13 +110,19 @@ src/
 │   │   ├── types.ts             SceneElement union, Scene (z-order = array order)
 │   │   ├── store.ts             createSceneStore — observable scene state
 │   │   ├── factory.ts           createRectangle/Ellipse/Freehand, normalizeRect, DEFAULT_STYLE
+│   │   ├── hit-test.ts          hitTest (back-to-front) + per-type point tests
+│   │   ├── bounds.ts            getBoundingBox — world-space bbox per element
 │   │   ├── sample.ts            sampleScene fixture (verification only)
 │   │   └── index.ts             barrel → @core/scene
+│   ├── editor/
+│   │   ├── store.ts             createEditorStore — observable selection state
+│   │   └── index.ts             barrel → @core/editor
 │   └── canvas/
 │       ├── transform.ts         screenToWorld / worldToScreen / zoomAtPoint
 │       ├── viewport.ts          MIN/MAX_SCALE, clampScale, scaleFromWheel
 │       ├── grid.ts              drawReferenceGrid
-│       ├── render.ts            renderScene
+│       ├── render.ts            renderScene / drawElement
+│       ├── selection.ts         drawSelectionBox — selection highlight chrome
 │       └── index.ts             barrel → @core/canvas
 └── react/
     ├── CanvasBoard.tsx          owns <canvas> + sizing; wires store, toolbar, tools

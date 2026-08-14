@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createSceneStore, type SceneElement } from "@core/scene";
+import { createEditorStore } from "@core/editor";
 import { usePanZoom } from "./usePanZoom";
 import { useDrawTool, type Tool } from "./useDrawTool";
 import { Toolbar } from "./Toolbar";
@@ -15,13 +16,29 @@ export function CanvasBoard() {
   // outside React render, so committing a shape repaints the canvas without
   // re-rendering this component or the toolbar.
   const [store] = useState(() => createSceneStore());
+  // Editor state (current selection) — kept separate from the scene document,
+  // so it is never persisted and survives immutable element replacement.
+  const [editorStore] = useState(() => createEditorStore());
 
   const [tool, setTool] = useState<Tool>("rectangle");
   // In-progress shape, shared with the render loop so it paints on top.
   const draftRef = useRef<SceneElement | null>(null);
 
-  const { viewportRef, scheduleRender } = usePanZoom(canvasRef, store, draftRef);
-  useDrawTool({ canvasRef, viewportRef, scheduleRender, store, tool, draftRef });
+  const { viewportRef, scheduleRender } = usePanZoom(
+    canvasRef,
+    store,
+    draftRef,
+    editorStore,
+  );
+  useDrawTool({
+    canvasRef,
+    viewportRef,
+    scheduleRender,
+    store,
+    tool,
+    draftRef,
+    editorStore,
+  });
 
   useEffect(() => {
     const canvas = canvasRef.current;

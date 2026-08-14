@@ -27,3 +27,4 @@ export {
   hitTestFreehand,
   distanceToSegment,
 } from './hit-test'
+export { getBoundingBox, type Bounds } from './bounds'

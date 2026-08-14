@@ -12,6 +12,7 @@ import {
   type SceneElement,
   type SceneStore,
 } from '@core/scene'
+import type { EditorStore } from '@core/editor'
 
 /** Active canvas tool. 'select' is an inert placeholder for now. */
 export type Tool = 'select' | 'rectangle' | 'ellipse' | 'freehand'
@@ -33,6 +34,8 @@ interface DrawToolParams {
   tool: Tool
   /** Shared with usePanZoom's render loop, which draws the draft on top. */
   draftRef: RefObject<SceneElement | null>
+  /** Single-select state — set on click (select tool) and after drawing. */
+  editorStore: EditorStore
 }
 
 /**
@@ -49,6 +52,7 @@ export function useDrawTool({
   store,
   tool,
   draftRef,
+  editorStore,
 }: DrawToolParams) {
   useEffect(() => {
     const canvas = canvasRef.current
@@ -63,23 +67,35 @@ export function useDrawTool({
       )
     }
 
-    // --- M6 throwaway probe: verifies hit-testing until M7 adds real selection.
-    // In select mode, clicking logs the topmost element under the cursor (or a
-    // miss). Tolerance is a constant screen slop → world units via / scale.
-    // TODO(M7): remove — replace with real selection state.
+    // Topmost element under a pointer event, within a constant screen slop
+    // (converted to world units via / scale). null when the point misses everything.
+    const pick = (e: PointerEvent): SceneElement | null => {
+      const tolerance = HIT_SLOP_PX / viewportRef.current.scale
+      return hitTest(store.getScene(), toWorld(e), tolerance)
+    }
+
+    // Select mode: click picks the topmost element (empty click deselects),
+    // hovering shows a pointer cursor over a hittable element, Escape deselects.
     if (tool === 'select') {
-      const onProbeDown = (e: PointerEvent) => {
+      const onSelectDown = (e: PointerEvent) => {
         if (e.button !== 0) return
-        const world = toWorld(e)
-        const tolerance = HIT_SLOP_PX / viewportRef.current.scale
-        const hit = hitTest(store.getScene(), world, tolerance)
-        console.log(
-          hit ? `hit: ${hit.type} ${hit.id}` : 'miss',
-          { world, tolerance },
-        )
+        editorStore.select(pick(e)?.id ?? null)
       }
-      canvas.addEventListener('pointerdown', onProbeDown)
-      return () => canvas.removeEventListener('pointerdown', onProbeDown)
+      const onSelectHover = (e: PointerEvent) => {
+        canvas.style.cursor = pick(e) ? 'pointer' : 'default'
+      }
+      const onKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') editorStore.select(null)
+      }
+      canvas.addEventListener('pointerdown', onSelectDown)
+      canvas.addEventListener('pointermove', onSelectHover)
+      window.addEventListener('keydown', onKeyDown)
+      return () => {
+        canvas.removeEventListener('pointerdown', onSelectDown)
+        canvas.removeEventListener('pointermove', onSelectHover)
+        window.removeEventListener('keydown', onKeyDown)
+        canvas.style.cursor = 'default'
+      }
     }
 
     // Two-corner drag (rectangle/ellipse); null when idle or drawing freehand.
@@ -175,7 +191,9 @@ export function useDrawTool({
           scheduleRender()
           return
         }
-        store.addElement(createFreehand(points))
+        const stroke = createFreehand(points)
+        store.addElement(stroke)
+        editorStore.select(stroke.id) // auto-select the freshly drawn shape
         return
       }
 
@@ -193,6 +211,7 @@ export function useDrawTool({
           ? createEllipse(from, end)
           : createRectangle(from, end)
       store.addElement(el)
+      editorStore.select(el.id) // auto-select the freshly drawn shape
     }
 
     // A captured drag can be cut short by the browser (touch interruption,
@@ -213,5 +232,5 @@ export function useDrawTool({
       canvas.removeEventListener('pointerup', onPointerUp)
       canvas.removeEventListener('pointercancel', onPointerCancel)
     }
-  }, [canvasRef, viewportRef, scheduleRender, store, tool, draftRef])
+  }, [canvasRef, viewportRef, scheduleRender, store, tool, draftRef, editorStore])
 }

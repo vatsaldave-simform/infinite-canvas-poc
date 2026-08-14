@@ -3,12 +3,15 @@ import {
   clampScale,
   drawElement,
   drawReferenceGrid,
+  drawSelectionBox,
   renderScene,
   scaleFromWheel,
   zoomAtPoint,
   type Viewport,
 } from '@core/canvas'
+import { getBoundingBox } from '@core/scene'
 import type { Scene, SceneElement, SceneStore } from '@core/scene'
+import type { EditorStore } from '@core/editor'
 
 /**
  * Owns the live Viewport, the wheel-driven pan/zoom input, and the rAF-batched
@@ -41,12 +44,16 @@ export function usePanZoom(
   canvasRef: RefObject<HTMLCanvasElement | null>,
   store: SceneStore,
   draftRef: RefObject<SceneElement | null>,
+  editorStore: EditorStore,
 ) {
   const viewportRef = useRef<Viewport>({ offsetX: 0, offsetY: 0, scale: 1 })
   const frameRef = useRef<number | null>(null)
   // Scene lives in a ref so pan/zoom repaints read the latest without the
   // render callback re-subscribing the wheel listener on every scene change.
   const sceneRef = useRef<Scene>(store.getScene())
+  // Selected id in a ref for the same reason — the render loop reads it without
+  // re-subscribing. Selection is editor state, kept separate from the scene.
+  const selectedIdRef = useRef<string | null>(editorStore.getSelectedId())
 
   const render = useCallback(() => {
     frameRef.current = null
@@ -64,6 +71,14 @@ export function usePanZoom(
     ctx.clearRect(0, 0, cssWidth, cssHeight)
     drawReferenceGrid(ctx, viewportRef.current, cssWidth, cssHeight)
     renderScene(ctx, sceneRef.current, viewportRef.current)
+    // Selection highlight: chrome over the committed scene, under the draft.
+    const selectedId = selectedIdRef.current
+    if (selectedId) {
+      const selected = sceneRef.current.find((el) => el.id === selectedId)
+      if (selected) {
+        drawSelectionBox(ctx, getBoundingBox(selected), viewportRef.current)
+      }
+    }
     // Draw the in-progress draft (if any) on top of the committed scene.
     const draft = draftRef.current
     if (draft) drawElement(ctx, draft, viewportRef.current)
@@ -85,6 +100,16 @@ export function usePanZoom(
     sync()
     return store.subscribe(sync)
   }, [store, scheduleRender])
+
+  // Repaint when the selection changes, via the same ref/rAF path.
+  useEffect(() => {
+    const sync = () => {
+      selectedIdRef.current = editorStore.getSelectedId()
+      scheduleRender()
+    }
+    sync()
+    return editorStore.subscribe(sync)
+  }, [editorStore, scheduleRender])
 
   useEffect(() => {
     const canvas = canvasRef.current

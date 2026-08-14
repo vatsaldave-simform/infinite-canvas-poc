@@ -12,3 +12,4 @@ export {
 } from "./viewport";
 export { drawReferenceGrid } from "./grid";
 export { renderScene, drawElement } from "./render";
+export { drawSelectionBox } from "./selection";

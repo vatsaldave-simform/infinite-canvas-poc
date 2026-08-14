@@ -13,8 +13,8 @@ Infinite-canvas drawing POC (Excalidraw-style), a **learning project** built str
 | M4 | Render loop + per-element draw fns | B | ✅ done | — |
 | M5 | Draw tool — click-drag to create shapes (rectangle, ellipse, freehand) | B wiring / A state | ✅ done | [`m05-draw-tool.md`](m05-draw-tool.md) |
 | M6 | Hit testing (point-in-rect/ellipse, near-path) | A | ✅ done | [`m06-hit-testing.md`](m06-hit-testing.md) |
-| **M7** | **Selection tool (single-select)** | **B wiring / A state** | **⬅ next** | *(added when started)* |
-| M8 | Move selected element | A | ⬜ | *(added when started)* |
+| M7 | Selection tool (single-select) | B wiring / A state | ✅ done | [`let-s-plan-milestone-7-linked-sphinx.md`](let-s-plan-milestone-7-linked-sphinx.md) |
+| **M8** | **Move selected element** | **A** | **⬅ next** | *(added when started)* |
 | M9 | Persistence pass 1: localStorage | B / discuss | ⬜ | *(added when started)* |
 | M10 | Deliberately break localStorage | discuss / A | ⬜ | *(added when started)* |
 | M11 | Persistence pass 2: IndexedDB migration | A / B | ⬜ | *(added when started)* |
@@ -23,4 +23,4 @@ Infinite-canvas drawing POC (Excalidraw-style), a **learning project** built str
 
 **Out of scope (do not build):** multi-select / rubber-band, freehand smoothing beyond basic capture, text / arrows / connectors, PNG/JSON export, realtime collab, any backend.
 
-> Notes: M0–M6 are complete — runtime design is documented in `ARCHITECTURE.md`. M5 shipped all three draw tools (rectangle, ellipse, freehand). M6 added `src/core/scene/hit-test.ts` (point-in-rect/ellipse, near-path) + a throwaway select-mode console probe in `useDrawTool.ts` (marked `TODO(M7)` — real selection replaces it). The earlier combined M3→M4 plan is at `~/.claude/plans/what-milestone-is-next-idempotent-pearl.md`.
+> Notes: M0–M7 are complete — runtime design is documented in `ARCHITECTURE.md`. M5 shipped all three draw tools (rectangle, ellipse, freehand). M6 added `src/core/scene/hit-test.ts` (point-in-rect/ellipse, near-path). M7 replaced the M6 console probe with real single-select: a separate `src/core/editor/store.ts` (`createEditorStore`, id-based selection), `src/core/scene/bounds.ts` (`getBoundingBox`), a `drawSelectionBox` overlay, plus Escape-to-deselect, hover cursor, and auto-select-after-draw. The earlier combined M3→M4 plan is at `~/.claude/plans/what-milestone-is-next-idempotent-pearl.md`.
