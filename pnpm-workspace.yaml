@@ -1,0 +1,15 @@
+# pnpm settings for this repo. Supply-chain hardening: don't install versions
+# published in the last 7 days (malicious releases are usually caught and
+# unpublished within hours), and refuse updates whose trust signals regress.
+minimumReleaseAge: 10080
+trustPolicy: no-downgrade
+# Exempt releases older than a year from the trust check: packages published
+# before npm provenance existed (e.g. semver@6.3.1, July 2023) have no
+# attestations and would otherwise read as a downgrade. Anything published in
+# the last year — where takeovers actually happen — is still fully checked.
+trustPolicyIgnoreAfter: 525600
+
+# Only these packages may run install scripts (moved here from package.json's
+# `pnpm` field, which pnpm 11 no longer reads).
+onlyBuiltDependencies:
+  - esbuild

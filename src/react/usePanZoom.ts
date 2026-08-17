@@ -27,6 +27,10 @@ const LINE_HEIGHT_PX = 16
 const PAGE_HEIGHT_PX = 400
 const MAX_ZOOM_DELTA = 20
 
+// Placeholder until the store-sync effect seeds sceneRef on mount. Shared and
+// never mutated — scene mutations always produce a new array.
+const EMPTY_SCENE: Scene = []
+
 // Line/page-mode wheel events report deltas in lines/pages, not pixels; scale
 // them so pan and zoom behave the same across devices and browsers.
 function deltaModeScale(deltaMode: number): number {
@@ -50,10 +54,11 @@ export function usePanZoom(
   const frameRef = useRef<number | null>(null)
   // Scene lives in a ref so pan/zoom repaints read the latest without the
   // render callback re-subscribing the wheel listener on every scene change.
-  const sceneRef = useRef<Scene>(store.getScene())
+  // Seeded by the store-sync effect below, which runs before the first frame.
+  const sceneRef = useRef<Scene>(EMPTY_SCENE)
   // Selected id in a ref for the same reason — the render loop reads it without
   // re-subscribing. Selection is editor state, kept separate from the scene.
-  const selectedIdRef = useRef<string | null>(editorStore.getSelectedId())
+  const selectedIdRef = useRef<string | null>(null)
 
   const render = useCallback(() => {
     frameRef.current = null

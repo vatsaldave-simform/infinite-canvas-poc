@@ -112,7 +112,6 @@ src/
 │   │   ├── factory.ts           createRectangle/Ellipse/Freehand, normalizeRect, DEFAULT_STYLE
 │   │   ├── hit-test.ts          hitTest (back-to-front) + per-type point tests
 │   │   ├── bounds.ts            getBoundingBox — world-space bbox per element
-│   │   ├── sample.ts            sampleScene fixture (verification only)
 │   │   └── index.ts             barrel → @core/scene
 │   ├── editor/
 │   │   ├── store.ts             createEditorStore — observable selection state

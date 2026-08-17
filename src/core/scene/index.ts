@@ -9,7 +9,6 @@ export type {
   Scene,
 } from './types'
 
-export { sampleScene } from './sample'
 export { createSceneStore, type SceneStore } from './store'
 export {
   createRectangle,
