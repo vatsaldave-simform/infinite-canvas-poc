@@ -14,8 +14,13 @@ Package manager is **pnpm** (see `pnpm-lock.yaml`).
 - `pnpm build` — typecheck (`tsc --noEmit`) then production build; the typecheck gate means a type error fails the build
 - `pnpm lint` — run ESLint over the repo
 - `pnpm preview` — serve the built `dist/`
+- `pnpm test` — run the Vitest suite once and exit
+- `pnpm test:watch` — the same suite in watch mode
 
-There is no test runner wired up yet.
+Tests are **colocated** (`transform.test.ts` beside `transform.ts`) and run in the
+`node` environment — not jsdom, see `docs/adr/0001-node-environment-for-core-tests.md`.
+Because `tsconfig.json` includes all of `src`, a type error in a test fails `pnpm build`.
+Tests are deliberately *not* a build gate, though: `build` stays typecheck + bundle.
 
 ## Architecture
 
