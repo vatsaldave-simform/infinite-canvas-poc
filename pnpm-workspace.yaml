@@ -13,3 +13,6 @@ trustPolicyIgnoreAfter: 525600
 # `pnpm` field, which pnpm 11 no longer reads).
 onlyBuiltDependencies:
   - esbuild
+
+allowBuilds:
+  esbuild: true
