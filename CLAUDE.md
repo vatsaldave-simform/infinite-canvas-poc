@@ -48,3 +48,17 @@ Entry flow: `index.html` → `src/main.tsx` (React root, `StrictMode`) → `src/
 - **React 19** with `react-jsx` (no `import React` needed). TypeScript is `strict`, plus `noUnusedLocals`/`noUnusedParameters` — unused symbols fail the build.
 - When building or restyling UI components, prefer the **`frontend-design`** skill for polished, non-generic design.
 - When writing, reviewing, or refactoring React/Next.js code, prefer the **`vercel-react-best-practices`** skill for performance-oriented patterns.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live as GitHub issues on `vatsaldave-simform/infinite-canvas-poc`, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage roles, each label string equal to its role name. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
