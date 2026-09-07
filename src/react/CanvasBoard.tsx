@@ -3,11 +3,12 @@ import { createSceneStore, type SceneElement } from "@core/scene";
 import { createEditorStore } from "@core/editor";
 import { usePanZoom } from "./usePanZoom";
 import { useDrawTool, type Tool } from "./useDrawTool";
+import { useSelectTool } from "./useSelectTool";
 import { Toolbar } from "./Toolbar";
 
 /**
  * CanvasBoard — owns the <canvas> DOM node and its HiDPI sizing, and wires the
- * pan/zoom, draw tool, and toolbar together. Scene state lives in the core
+ * pan/zoom, draw and select tools, and toolbar together. Scene state lives in the core
  * SceneStore; this component only subscribes and wires DOM/pointer events.
  */
 export function CanvasBoard() {
@@ -38,6 +39,13 @@ export function CanvasBoard() {
     tool,
     draftRef,
     editorStore,
+  });
+  useSelectTool({
+    canvasRef,
+    viewportRef,
+    store,
+    editorStore,
+    active: tool === "select",
   });
 
   useEffect(() => {

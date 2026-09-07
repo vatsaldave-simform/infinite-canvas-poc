@@ -11,11 +11,11 @@ Infinite-canvas drawing POC (Excalidraw-style), a **learning project** built str
 | M2 | World↔screen transform (+ zoom-around-cursor) | A | ✅ done | — |
 | M3 | Pan & zoom interaction | A math / B wiring | ✅ done | — |
 | M4 | Render loop + per-element draw fns | B | ✅ done | — |
-| M5 | Draw tool — click-drag to create shapes (rectangle, ellipse, freehand) | B wiring / A state | ✅ done | [`m05-draw-tool.md`](m05-draw-tool.md) |
+| M5 | Draw tool — click-drag to create shapes (rectangle, ellipse, freehand) | B wiring / A state | ✅ done | *(plan not retained)* |
 | M6 | Hit testing (point-in-rect/ellipse, near-path) | A | ✅ done | [`m06-hit-testing.md`](m06-hit-testing.md) |
-| M7 | Selection tool (single-select) | B wiring / A state | ✅ done | [`let-s-plan-milestone-7-linked-sphinx.md`](let-s-plan-milestone-7-linked-sphinx.md) |
-| **M8** | **Move selected element** | **A** | **⬅ next** | *(added when started)* |
-| M9 | Persistence pass 1: localStorage | B / discuss | ⬜ | *(added when started)* |
+| M7 | Selection tool (single-select) | B wiring / A state | ✅ done | [`m07-selection-tool.md`](m07-selection-tool.md) |
+| M8 | Move selected element (drag) | A | ✅ done | [`m08-move-element.md`](m08-move-element.md) |
+| **M9** | **Persistence pass 1: localStorage** | **B / discuss** | **⬅ next** | *(added when started)* |
 | M10 | Deliberately break localStorage | discuss / A | ⬜ | *(added when started)* |
 | M11 | Persistence pass 2: IndexedDB migration | A / B | ⬜ | *(added when started)* |
 | M12 | Resize + Delete | mix | ⬜ | *(added when started)* |
@@ -23,4 +23,4 @@ Infinite-canvas drawing POC (Excalidraw-style), a **learning project** built str
 
 **Out of scope (do not build):** multi-select / rubber-band, freehand smoothing beyond basic capture, text / arrows / connectors, PNG/JSON export, realtime collab, any backend.
 
-> Notes: M0–M7 are complete — runtime design is documented in `ARCHITECTURE.md`. M5 shipped all three draw tools (rectangle, ellipse, freehand). M6 added `src/core/scene/hit-test.ts` (point-in-rect/ellipse, near-path). M7 replaced the M6 console probe with real single-select: a separate `src/core/editor/store.ts` (`createEditorStore`, id-based selection), `src/core/scene/bounds.ts` (`getBoundingBox`), a `drawSelectionBox` overlay, plus Escape-to-deselect, hover cursor, and auto-select-after-draw. The earlier combined M3→M4 plan is at `~/.claude/plans/what-milestone-is-next-idempotent-pearl.md`.
+> Notes: M0–M7 are complete — runtime design is documented in `ARCHITECTURE.md`. M5 shipped all three draw tools (rectangle, ellipse, freehand). M6 added `src/core/scene/hit-test.ts` (point-in-rect/ellipse, near-path). M7 replaced the M6 console probe with real single-select: a separate `src/core/editor/store.ts` (`createEditorStore`, id-based selection), `src/core/scene/bounds.ts` (`getBoundingBox`), a `drawSelectionBox` overlay, plus Escape-to-deselect, hover cursor, and auto-select-after-draw. M8 added `src/core/scene/translate.ts` (`translateElement`), `replaceElement` on the scene store (index-preserving, so a move never changes z-order), and `src/react/useSelectTool.ts` — select and drag-to-move split out of `useDrawTool`, sharing `src/react/pointer.ts`. Dragging commits live to the store (ADR-0002); **arrow-key nudge was deliberately deferred** and can be picked up any time. Plan files for M3→M4 and M5 were not retained — they lived only in the transient `~/.claude/plans/` scratch directory. Every plan from M6 on is versioned here.

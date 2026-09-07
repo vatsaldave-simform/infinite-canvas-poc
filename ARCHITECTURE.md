@@ -81,6 +81,9 @@ Drawing uses **pointer** events (`src/react/useDrawTool.ts`), so it never collid
 
 - `getScene()` returns a referentially-stable snapshot (same array until a real mutation).
 - `addElement(el)` appends **immutably** (new array) and notifies subscribers.
+- `replaceElement(next)` swaps the element with `next.id` for `next`, keeping
+  its **array index** — a move must never change z-order. An unknown id is a
+  no-op that returns the *same* array, so the snapshot stays stable.
 - `subscribe(fn)` registers a listener, returns an unsubscribe.
 
 React binds to it through `useSyncExternalStore` (`src/react/useSceneStore.ts`). Immutable updates + stable snapshots are what make change-detection cheap and keep the door open for undo later.
@@ -92,7 +95,43 @@ Selection is **editor state, not document state** — it is *not* part of the sc
 - `getSelectedId()` / `select(id | null)` / `subscribe(fn)` — holds a single selected **id**, or `null`.
 - Selection references an element **by id, not by object**: immutable mutations (e.g. moving in M8) replace the element with a new object, and an id stays valid across that where a captured reference would go stale.
 
-`usePanZoom` subscribes to it alongside the scene store and repaints via the same ref/rAF path; the render loop looks the id up in the current scene and draws the highlight (step 5 above). In **select** mode, `useDrawTool` sets the selection on click (empty click clears), shows a pointer cursor on hover over a hittable element, and clears on `Escape`; drawing any shape auto-selects it.
+`usePanZoom` subscribes to it alongside the scene store and repaints via the same ref/rAF path; the render loop looks the id up in the current scene and draws the highlight (step 5 above). Drawing any shape auto-selects it.
+
+## Selecting & moving
+
+`src/react/useSelectTool.ts` owns the select gesture; `useDrawTool` handles
+creation only. Both convert pointer events through the shared
+`pointerToWorld(canvas, e, viewport)` in `src/react/pointer.ts`.
+
+Press → select the topmost hit element (empty press clears) → drag it to move.
+It is **one gesture**: pressing an element you had not selected selects it and
+arms a drag in the same motion. Cursors are `move` on hover, `grabbing` once a
+drag arms, `default` otherwise; hover hit-testing is skipped while dragging.
+
+Two rules make the drag behave:
+
+- **A screen-space arming threshold** (`DRAG_THRESHOLD_PX = 3`). Below it the
+  gesture is a plain click, so a sloppy select never nudges a shape. Screen px
+  for the same reason as `HIT_SLOP_PX` — a world-unit threshold would mean
+  something different at every zoom. Once armed the drag stays armed, so
+  returning near the press point does not disarm it.
+- **An absolute delta.** `pointerdown` captures the press point (in both spaces)
+  and the element *as it was*; every move writes
+  `translateElement(pressed, currentWorld − pressWorld)`. Re-deriving from the
+  original each frame cannot drift, tolerates dropped move events, and stays
+  correct if the viewport zooms mid-drag.
+
+The move **commits live** — each `pointermove` goes straight through
+`store.replaceElement`, so the scene is always the truth and the highlight,
+hit-testing and renderer follow with no second source of position and no
+explicit repaint call. `pointercancel` leaves the element where it landed.
+See `docs/adr/0002-drag-commits-live-to-the-scene-store.md`; note its
+consequence for M13 (history is captured per *gesture*, not per mutation).
+
+`src/core/scene/translate.ts` holds the geometry: `translateElement(el, delta)`
+returns a new element offset by `delta`. It needs no per-type `switch` — every
+element carries `x`/`y` on `BaseElement`, and freehand `points` are relative to
+that origin, so moving the origin moves the whole stroke.
 
 ## Creating elements
 
@@ -112,6 +151,7 @@ src/
 │   │   ├── factory.ts           createRectangle/Ellipse/Freehand, normalizeRect, DEFAULT_STYLE
 │   │   ├── hit-test.ts          hitTest (back-to-front) + per-type point tests
 │   │   ├── bounds.ts            getBoundingBox — world-space bbox per element
+│   │   ├── translate.ts         translateElement — offset an element's origin
 │   │   └── index.ts             barrel → @core/scene
 │   ├── editor/
 │   │   ├── store.ts             createEditorStore — observable selection state
@@ -127,6 +167,8 @@ src/
     ├── CanvasBoard.tsx          owns <canvas> + sizing; wires store, toolbar, tools
     ├── usePanZoom.ts            viewport state, wheel input, render loop
     ├── useDrawTool.ts           pointer-drag shape creation
+    ├── useSelectTool.ts         click-to-select + drag-to-move
+    ├── pointer.ts               pointerToWorld — shared event → world point
     ├── useSceneStore.ts         binds core store to React
     └── Toolbar.tsx              tool picker (UI chrome)
 ```

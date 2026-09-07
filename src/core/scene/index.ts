@@ -27,3 +27,4 @@ export {
   distanceToSegment,
 } from './hit-test'
 export { getBoundingBox, type Bounds } from './bounds'
+export { translateElement } from './translate'

@@ -21,6 +21,14 @@ export interface SceneStore {
   addElement(element: SceneElement): void;
 
   /**
+   * Swap the element with `next.id` for `next`, immutably, PRESERVING its
+   * position in the array (z-order must not change). Notifies subscribers.
+   * If no element has that id, does nothing — and in particular does NOT
+   * allocate a new array, so the getScene() stability contract holds.
+   */
+  replaceElement(next: SceneElement): void;
+
+  /**
    * Register a listener called after every mutation. Returns an unsubscribe
    * function that removes this listener.
    */
@@ -40,6 +48,18 @@ export function createSceneStore(initial?: Scene): SceneStore {
     },
     addElement(element: SceneElement) {
       current = [...current, element];
+      listeners.forEach((listener) => {
+        listener();
+      });
+    },
+    replaceElement(next: SceneElement) {
+      const index = current.findIndex((element) => element.id === next.id);
+      if (index === -1) return;
+
+      const updated = [...current];
+      updated[index] = next;
+      current = updated;
+
       listeners.forEach((listener) => {
         listener();
       });

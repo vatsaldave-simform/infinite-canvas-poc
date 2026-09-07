@@ -1,10 +1,9 @@
 import { useEffect, type RefObject } from 'react'
-import { screenToWorld, type Viewport } from '@core/canvas'
+import type { Viewport } from '@core/canvas'
 import {
   createRectangle,
   createEllipse,
   createFreehand,
-  hitTest,
   normalizeRect,
   DEFAULT_STYLE,
   type FreehandElement,
@@ -13,15 +12,13 @@ import {
   type SceneStore,
 } from '@core/scene'
 import type { EditorStore } from '@core/editor'
+import { pointerToWorld } from './pointer'
 
-/** Active canvas tool. 'select' is an inert placeholder for now. */
+/** Active canvas tool. Selecting and moving live in useSelectTool. */
 export type Tool = 'select' | 'rectangle' | 'ellipse' | 'freehand'
 
 /** Drags smaller than this (world units) are treated as a click, not a shape. */
 const MIN_DRAG_SIZE = 2
-
-/** Click slop for hit-testing, in SCREEN px; divided by scale → world tolerance. */
-const HIT_SLOP_PX = 6
 
 /** Placeholder id for the in-progress draft — never committed to the scene. */
 const DRAFT_ID = 'draft'
@@ -44,6 +41,8 @@ interface DrawToolParams {
  * render loop) previews the shape; pointerup finalizes via the factory and
  * commits with store.addElement. Navigation is wheel-driven, so pointer-drag
  * drawing never collides with it.
+ *
+ * Creation only — selecting and moving are useSelectTool's job.
  */
 export function useDrawTool({
   canvasRef,
@@ -58,45 +57,11 @@ export function useDrawTool({
     const canvas = canvasRef.current
     if (!canvas) return
 
+    if (tool === 'select') return // useSelectTool owns the select gesture
+
     // Pointer position → world point, using the current viewport.
-    const toWorld = (e: PointerEvent): Point => {
-      const rect = canvas.getBoundingClientRect()
-      return screenToWorld(
-        { x: e.clientX - rect.left, y: e.clientY - rect.top },
-        viewportRef.current,
-      )
-    }
-
-    // Topmost element under a pointer event, within a constant screen slop
-    // (converted to world units via / scale). null when the point misses everything.
-    const pick = (e: PointerEvent): SceneElement | null => {
-      const tolerance = HIT_SLOP_PX / viewportRef.current.scale
-      return hitTest(store.getScene(), toWorld(e), tolerance)
-    }
-
-    // Select mode: click picks the topmost element (empty click deselects),
-    // hovering shows a pointer cursor over a hittable element, Escape deselects.
-    if (tool === 'select') {
-      const onSelectDown = (e: PointerEvent) => {
-        if (e.button !== 0) return
-        editorStore.select(pick(e)?.id ?? null)
-      }
-      const onSelectHover = (e: PointerEvent) => {
-        canvas.style.cursor = pick(e) ? 'pointer' : 'default'
-      }
-      const onKeyDown = (e: KeyboardEvent) => {
-        if (e.key === 'Escape') editorStore.select(null)
-      }
-      canvas.addEventListener('pointerdown', onSelectDown)
-      canvas.addEventListener('pointermove', onSelectHover)
-      window.addEventListener('keydown', onKeyDown)
-      return () => {
-        canvas.removeEventListener('pointerdown', onSelectDown)
-        canvas.removeEventListener('pointermove', onSelectHover)
-        window.removeEventListener('keydown', onKeyDown)
-        canvas.style.cursor = 'default'
-      }
-    }
+    const toWorld = (e: PointerEvent): Point =>
+      pointerToWorld(canvas, e, viewportRef.current)
 
     // Two-corner drag (rectangle/ellipse); null when idle or drawing freehand.
     let start: Point | null = null
