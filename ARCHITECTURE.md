@@ -150,7 +150,15 @@ Only the **scene** is persisted. Editor state (selection, tool) and the viewport
 - **Load** seeds the store at construction — `useState(() => createSceneStore(loadScene()))`. The store is born holding the document, so there is no empty-then-populate flash and no "is it loaded yet" state anywhere. This bakes in the assumption that loading is **synchronous**, which is where the IndexedDB pass (M11) will have to intervene.
 - **Persist** runs on every store notification, uncoalesced. Because a drag commits live (ADR-0002), that is one `JSON.stringify` + `setItem` per `pointermove` — hundreds per gesture.
 
-This pass is **deliberately naive**: no schema version, no validation, no error handling, no quota handling, no coalescing, and no abstraction over the storage mechanism. A stored value that is not valid JSON throws out of `loadScene()` *during render*; one that parses but is not a `Scene` passes the cast silently and fails later inside the renderer's `switch`. Every one of those omissions is intentional and load-bearing for M10, which exists to break this on purpose — the reasoning is in `.claude/plans/m09-localstorage-persistence.md`.
+This pass is **deliberately naive**: no schema version, no validation, no error handling, no quota handling, no coalescing, and no abstraction over the storage mechanism. Every one of those omissions was intentional, so that the failures could be provoked and measured rather than guessed at — the reasoning is in `.claude/plans/m09-localstorage-persistence.md`.
+
+They have now been measured, and **ADR-0003 replaces this mechanism with IndexedDB** as a result. In short: the quota is 5 MiB per origin (≈431 freehand strokes, reached in an afternoon); exceeding it throws out of `store.addElement`, after which the app keeps drawing into a document that has silently stopped saving; one whole-scene write costs 15–17 ms at 200 strokes, which is a whole frame per `pointermove`; and the unvalidated cast in `loadScene()` turns a bad stored value into either a white screen or — worse — an invisible element that hit-tests true everywhere, because the `never` exhaustiveness guards are compile-time only. Full numbers in `.claude/plans/m10-findings.md`.
+
+### Diagnostics
+
+`src/core/persistence/diagnostics.ts` is the instrument those measurements came from, and it is deliberately not defensive — it provokes failures rather than preventing them. It generates deterministic synthetic scenes (`makeStressScene`), measures what a scene costs in the units the quota charges (`measureScene`, `probePersist`), drives the real write path until it throws (`floodPersist`, `findStorageCeiling`), fills a live store one `addElement` at a time to expose the O(n²) write amplification (`fillStore`), and corrupts the stored value in three specific ways (`corruptStoredScene`).
+
+No engine path calls into it: its only caller is `src/react/useDiagnostics.ts`, which attaches it to `window.canvasDiagnostics` behind `import.meta.env.DEV`. Because that guard is statically false in a production build and the module has no top-level side effects, the whole harness is tree-shaken out — verified by grepping the built bundle, not assumed. Core exposes the instruments; React decides when they exist — the same division as persistence itself.
 
 ## File map
 
@@ -171,6 +179,7 @@ src/
 │   │   └── index.ts             barrel → @core/editor
 │   ├── persistence/
 │   │   ├── local-storage.ts     persistScene / loadScene — the document, one key
+│   │   ├── diagnostics.ts       stress scenes, storage probes, deliberate corruption
 │   │   └── index.ts             barrel → @core/persistence
 │   └── canvas/
 │       ├── transform.ts         screenToWorld / worldToScreen / zoomAtPoint
@@ -184,6 +193,7 @@ src/
     ├── usePanZoom.ts            viewport state, wheel input, render loop
     ├── useDrawTool.ts           pointer-drag shape creation
     ├── useSelectTool.ts         click-to-select + drag-to-move
+    ├── useDiagnostics.ts        dev-only window.canvasDiagnostics handle
     ├── pointer.ts               pointerToWorld — shared event → world point
     └── Toolbar.tsx              tool picker (UI chrome)
 ```

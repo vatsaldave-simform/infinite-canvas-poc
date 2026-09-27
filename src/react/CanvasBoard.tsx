@@ -5,6 +5,7 @@ import { loadScene, persistScene } from "@core/persistence";
 import { usePanZoom } from "./usePanZoom";
 import { useDrawTool, type Tool } from "./useDrawTool";
 import { useSelectTool } from "./useSelectTool";
+import { useDiagnostics } from "./useDiagnostics";
 import { Toolbar } from "./Toolbar";
 
 /**
@@ -50,6 +51,8 @@ export function CanvasBoard() {
     editorStore,
     active: tool === "select",
   });
+  // Dev-only: exposes the persistence diagnostics on window.canvasDiagnostics.
+  useDiagnostics(store);
 
   // The scene is the document, so persist it on every mutation. Deliberately
   // uncoalesced: a drag commits live to the store, so this stringifies and

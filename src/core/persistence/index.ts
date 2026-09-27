@@ -1,1 +1,20 @@
 export { persistScene, loadScene, SCENE_STORAGE_KEY } from "./local-storage";
+export {
+  makeStressScene,
+  measureScene,
+  probePersist,
+  findStorageCeiling,
+  floodPersist,
+  fillStore,
+  corruptStoredScene,
+  clearStoredScene,
+  DEFAULT_STROKE_POINTS,
+  type StressSceneOptions,
+  type SceneCost,
+  type PersistProbe,
+  type StorageCeiling,
+  type FloodOptions,
+  type FloodResult,
+  type FillResult,
+  type SceneCorruption,
+} from "./diagnostics";
