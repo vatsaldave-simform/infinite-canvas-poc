@@ -86,7 +86,7 @@ Drawing uses **pointer** events (`src/react/useDrawTool.ts`), so it never collid
   no-op that returns the *same* array, so the snapshot stays stable.
 - `subscribe(fn)` registers a listener, returns an unsubscribe.
 
-React binds to it through `useSyncExternalStore` (`src/react/useSceneStore.ts`). Immutable updates + stable snapshots are what make change-detection cheap and keep the door open for undo later.
+Nothing binds the store through `useSyncExternalStore`: `usePanZoom` subscribes directly and copies each snapshot into a ref, repainting through rAF, so committing a shape never re-renders `CanvasBoard` or the toolbar. The stability contract documented in `store.ts` is what *would* make `useSyncExternalStore` safe if a component ever needs to read the scene during render. Immutable updates + stable snapshots are what make change-detection cheap and keep the door open for undo later.
 
 ### Selection & editor state
 
@@ -139,6 +139,19 @@ that origin, so moving the origin moves the whole stroke.
 
 Draw flow (`useDrawTool`): the toolbar picks a tool (`rectangle` / `ellipse` / `freehand`, plus `select` — see *Selection & editor state*). Rectangle and ellipse are two-corner drags (`pointerdown` start → `pointermove` resize); freehand captures a point per `pointermove`. Either way a *draft* element is kept in a ref and painted on top; `pointerup` finalizes via the factory and commits with `store.addElement`. Tiny drags / too-few points are ignored (no zero-size shapes).
 
+## Persistence
+
+`src/core/persistence/local-storage.ts` — `persistScene(scene)` and `loadScene()`, over a single localStorage key, `infinite-canvas:scene`. The stored value is the scene as a **bare JSON array**: the scene *is* an array and its order *is* z-order, so the persisted form says exactly that and nothing more — no envelope, no schema version. An empty scene is stored as `"[]"` rather than removing the key.
+
+Only the **scene** is persisted. Editor state (selection, tool) and the viewport are not, so a reload restores the *document*, not the session: shapes return at their world coordinates, the camera sits at the world origin at 1×, nothing is selected. See `CONTEXT.md` ("Persistence") for the vocabulary — *store* always means the in-memory observable, never the persisted copy, and *persist* is the verb for crossing into storage.
+
+`CanvasBoard` owns the *when*, as it does for every other input in the app:
+
+- **Load** seeds the store at construction — `useState(() => createSceneStore(loadScene()))`. The store is born holding the document, so there is no empty-then-populate flash and no "is it loaded yet" state anywhere. This bakes in the assumption that loading is **synchronous**, which is where the IndexedDB pass (M11) will have to intervene.
+- **Persist** runs on every store notification, uncoalesced. Because a drag commits live (ADR-0002), that is one `JSON.stringify` + `setItem` per `pointermove` — hundreds per gesture.
+
+This pass is **deliberately naive**: no schema version, no validation, no error handling, no quota handling, no coalescing, and no abstraction over the storage mechanism. A stored value that is not valid JSON throws out of `loadScene()` *during render*; one that parses but is not a `Scene` passes the cast silently and fails later inside the renderer's `switch`. Every one of those omissions is intentional and load-bearing for M10, which exists to break this on purpose — the reasoning is in `.claude/plans/m09-localstorage-persistence.md`.
+
 ## File map
 
 ```
@@ -156,6 +169,9 @@ src/
 │   ├── editor/
 │   │   ├── store.ts             createEditorStore — observable selection state
 │   │   └── index.ts             barrel → @core/editor
+│   ├── persistence/
+│   │   ├── local-storage.ts     persistScene / loadScene — the document, one key
+│   │   └── index.ts             barrel → @core/persistence
 │   └── canvas/
 │       ├── transform.ts         screenToWorld / worldToScreen / zoomAtPoint
 │       ├── viewport.ts          MIN/MAX_SCALE, clampScale, scaleFromWheel
@@ -169,7 +185,6 @@ src/
     ├── useDrawTool.ts           pointer-drag shape creation
     ├── useSelectTool.ts         click-to-select + drag-to-move
     ├── pointer.ts               pointerToWorld — shared event → world point
-    ├── useSceneStore.ts         binds core store to React
     └── Toolbar.tsx              tool picker (UI chrome)
 ```
 

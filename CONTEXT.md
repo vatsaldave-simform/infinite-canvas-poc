@@ -73,6 +73,24 @@ drawable types.
 
 ---
 
+## Persistence
+
+**Persist** — to write the scene out to browser storage so that it survives a
+reload. One direction, and reserved for that crossing: the scene is *persisted*,
+and the stored copy is *loaded* back. Prefer it to "save", which is fine in
+speech but should not name code.
+
+**Store** — always the **in-memory** observable holding live state
+(`SceneStore`, `EditorStore`). Never the persisted copy: browser storage is
+*storage*, and letting one word mean both is the ambiguity this entry exists to
+prevent.
+
+Only the scene is persisted. **Editor state** and the **viewport** are not, so a
+reload restores the *document*, not the session: the drawing comes back, the
+camera returns to the world origin at 1× and nothing is selected.
+
+---
+
 ## Interaction
 
 **Hit test** — deciding which element, if any, lies under a world point.

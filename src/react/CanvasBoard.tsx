@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createSceneStore, type SceneElement } from "@core/scene";
 import { createEditorStore } from "@core/editor";
+import { loadScene, persistScene } from "@core/persistence";
 import { usePanZoom } from "./usePanZoom";
 import { useDrawTool, type Tool } from "./useDrawTool";
 import { useSelectTool } from "./useSelectTool";
@@ -13,10 +14,12 @@ import { Toolbar } from "./Toolbar";
  */
 export function CanvasBoard() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  // The scene store lives in core/; created once. usePanZoom subscribes to it
-  // outside React render, so committing a shape repaints the canvas without
-  // re-rendering this component or the toolbar.
-  const [store] = useState(() => createSceneStore());
+  // The scene store lives in core/; created once, seeded with the persisted
+  // scene so it is born holding the document — no empty-then-populate flash
+  // and no "is it loaded yet" state. usePanZoom subscribes to it outside React
+  // render, so committing a shape repaints the canvas without re-rendering
+  // this component or the toolbar.
+  const [store] = useState(() => createSceneStore(loadScene()));
   // Editor state (current selection) — kept separate from the scene document,
   // so it is never persisted and survives immutable element replacement.
   const [editorStore] = useState(() => createEditorStore());
@@ -47,6 +50,15 @@ export function CanvasBoard() {
     editorStore,
     active: tool === "select",
   });
+
+  // The scene is the document, so persist it on every mutation. Deliberately
+  // uncoalesced: a drag commits live to the store, so this stringifies and
+  // writes on every pointermove. The naive cost is meant to be visible.
+  useEffect(() => {
+    return store.subscribe(() => {
+      persistScene(store.getScene());
+    });
+  }, [store]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
