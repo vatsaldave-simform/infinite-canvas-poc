@@ -17,7 +17,7 @@ Infinite-canvas drawing POC (Excalidraw-style), a **learning project** built str
 | M8 | Move selected element (drag) | A | ✅ done | [`m08-move-element.md`](m08-move-element.md) |
 | M9 | Persistence pass 1: localStorage | B | ✅ done | [`m09-localstorage-persistence.md`](m09-localstorage-persistence.md) |
 | M10 | Deliberately break localStorage | discuss / A | ✅ done | [`m10-break-localstorage.md`](m10-break-localstorage.md) |
-| **M11** | **Persistence pass 2: IndexedDB migration** | **A / B** | **⬅ next** | *(added when started)* |
+| **M11** | **Persistence pass 2: IndexedDB migration** | **A / B** | **🚧 in progress** | [`m11-indexeddb-persistence.md`](m11-indexeddb-persistence.md) |
 | M12 | Resize + Delete | mix | ⬜ | *(added when started)* |
 | M13 | Undo/redo command stack | A | ⬜ | *(added when started)* |
 

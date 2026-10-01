@@ -115,3 +115,27 @@ the thing being replaced.
 **No error boundary is added.** Tempting after L1, and a one-line change — but
 what the user sees when the document will not load is a persistence decision,
 and it belongs with the validation decision above rather than ahead of it.
+
+## Amendment — 2026-10-01
+
+The decision stands. Two claims in the reasoning above are corrected here
+rather than rewritten, so the original argument stays readable as it was made.
+
+**Serialisation does not leave the main thread.** The case for IndexedDB above
+promises "no `JSON.stringify` on the main thread per write" and "asynchronous
+writes that do not block painting". Both overstate it. `put()` structured-clones
+its value **synchronously, on the calling thread**, before it returns. Only the
+commit is asynchronous. So a whole-scene write still costs O(scene) work on the
+thread that paints: the serialisation changes from `JSON.stringify` to
+structured clone, but it does not move off the thread. The same correction
+applies to "moving off the main thread removes the frame-budget cost of a
+write", under the coalescing consequence. Coalescing is still needed for the
+reason it was needed before: it bounds that synchronous cost. Whether
+structured clone is cheaper than `JSON.stringify` + `setItem` is measured
+against M10's W2 in `.claude/plans/m11-findings.md`, not assumed.
+
+**"Coordinate rounding is worth doing regardless" is struck.** The argument
+for it was capacity under localStorage's 5 MiB per-origin ceiling, and that
+ceiling no longer applies. Rounding is lossy, so without a capacity argument
+it has none left. It is deferred. See decision 16 of
+`.claude/plans/m11-indexeddb-persistence.md`.

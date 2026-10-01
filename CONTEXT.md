@@ -89,6 +89,23 @@ Only the scene is persisted. **Editor state** and the **viewport** are not, so a
 reload restores the *document*, not the session: the drawing comes back, the
 camera returns to the world origin at 1× and nothing is selected.
 
+**Format version** — the version of the persisted document's shape, recorded
+alongside the scene in storage. It changes only when the shape of what is
+stored changes. Not to be confused with the storage mechanism's own internal
+versioning, which is an implementation detail and moves independently.
+
+**Upgrade** — turning a persisted document written at an older format version
+into the current one. Reserved for that meaning: *migration* names the move from
+one storage mechanism to another, which is a one-off project event, not
+something the code does.
+
+**Quarantine** — where a persisted document goes when it cannot be loaded:
+set aside intact rather than overwritten, so that a document this build does not
+understand — corrupt, or written by a newer build — is never destroyed by the
+next persist. A quarantined document is not part of the scene and is not loaded
+again automatically. A document is accepted or quarantined **whole**; a load
+never keeps some elements and drops others.
+
 ---
 
 ## Interaction
