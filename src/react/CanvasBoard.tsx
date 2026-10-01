@@ -1,26 +1,34 @@
 import { useEffect, useRef, useState } from "react";
-import { createSceneStore, type SceneElement } from "@core/scene";
+import { createSceneStore, type Scene, type SceneElement } from "@core/scene";
 import { createEditorStore } from "@core/editor";
-import { loadScene, persistScene } from "@core/persistence";
+import { writeDocument } from "@core/persistence";
 import { usePanZoom } from "./usePanZoom";
 import { useDrawTool, type Tool } from "./useDrawTool";
 import { useSelectTool } from "./useSelectTool";
 import { useDiagnostics } from "./useDiagnostics";
 import { Toolbar } from "./Toolbar";
 
+export interface CanvasBoardProps {
+  /** Open database connection the scene is persisted through. */
+  db: IDBDatabase;
+  /** The persisted scene, already loaded. */
+  initialScene: Scene;
+}
+
 /**
  * CanvasBoard — owns the <canvas> DOM node and its HiDPI sizing, and wires the
  * pan/zoom, draw and select tools, and toolbar together. Scene state lives in the core
  * SceneStore; this component only subscribes and wires DOM/pointer events.
+ * Mounted by DocumentLoader only once the persisted document has arrived.
  */
-export function CanvasBoard() {
+export function CanvasBoard({ db, initialScene }: CanvasBoardProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  // The scene store lives in core/; created once, seeded with the persisted
+  // The scene store lives in core/; created once, seeded with the loaded
   // scene so it is born holding the document — no empty-then-populate flash
   // and no "is it loaded yet" state. usePanZoom subscribes to it outside React
   // render, so committing a shape repaints the canvas without re-rendering
   // this component or the toolbar.
-  const [store] = useState(() => createSceneStore(loadScene()));
+  const [store] = useState(() => createSceneStore(initialScene));
   // Editor state (current selection) — kept separate from the scene document,
   // so it is never persisted and survives immutable element replacement.
   const [editorStore] = useState(() => createEditorStore());
@@ -52,16 +60,16 @@ export function CanvasBoard() {
     active: tool === "select",
   });
   // Dev-only: exposes the persistence diagnostics on window.canvasDiagnostics.
-  useDiagnostics(store);
+  useDiagnostics(store, db);
 
   // The scene is the document, so persist it on every mutation. Deliberately
-  // uncoalesced: a drag commits live to the store, so this stringifies and
-  // writes on every pointermove. The naive cost is meant to be visible.
+  // uncoalesced: a drag commits live to the store, so this clones and writes
+  // the whole scene on every pointermove.
   useEffect(() => {
     return store.subscribe(() => {
-      persistScene(store.getScene());
+      void writeDocument(db, store.getScene());
     });
-  }, [store]);
+  }, [store, db]);
 
   useEffect(() => {
     const canvas = canvasRef.current;

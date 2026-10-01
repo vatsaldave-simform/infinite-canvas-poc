@@ -1,63 +1,6 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createSceneStore, type Scene } from "@core/scene";
-import { loadScene, persistScene, SCENE_STORAGE_KEY } from "./local-storage";
-import {
-  clearStoredScene,
-  corruptStoredScene,
-  CORRUPTIONS,
-  fillStore,
-  findStorageCeiling,
-  floodPersist,
-  makeStressScene,
-  measureScene,
-  probePersist,
-  STORAGE_PROBE_KEY,
-} from "./diagnostics";
-
-/**
- * Tests run in the node environment (ADR-0001), which has neither localStorage
- * nor a storage quota. This fake supplies both: an optional cap is what makes
- * the quota paths reachable at all outside a browser. The cap is counted in
- * characters of key + value, which is how Chrome bills the real one.
- */
-function createMemoryStorage(capChars = Infinity): Storage {
-  const entries = new Map<string, string>();
-
-  const usedChars = (skipKey?: string) => {
-    let chars = 0;
-    for (const [key, value] of entries) {
-      if (key === skipKey) continue;
-      chars += key.length + value.length;
-    }
-    return chars;
-  };
-
-  return {
-    get length() {
-      return entries.size;
-    },
-    clear: () => entries.clear(),
-    getItem: (key) => entries.get(key) ?? null,
-    key: (index) => [...entries.keys()][index] ?? null,
-    removeItem: (key) => {
-      entries.delete(key);
-    },
-    setItem: (key, value) => {
-      const next = usedChars(key) + key.length + value.length;
-      if (next > capChars) {
-        throw new DOMException(
-          "The quota has been exceeded.",
-          "QuotaExceededError",
-        );
-      }
-      entries.set(key, value);
-    },
-  };
-}
-
-beforeEach(() => {
-  globalThis.localStorage = createMemoryStorage();
-});
+import { fillStore, makeStressScene, measureScene } from "./diagnostics";
 
 describe("makeStressScene", () => {
   it("is deterministic — same options, byte-identical JSON", () => {
@@ -109,14 +52,6 @@ describe("makeStressScene", () => {
     expect(rounded.points).toBe(raw.points);
     expect(rounded.chars).toBeLessThan(raw.chars);
   });
-
-  it("round-trips through the real persist path", () => {
-    const scene = makeStressScene({ elements: 2, pointsPerElement: 5 });
-
-    persistScene(scene);
-
-    expect(loadScene()).toEqual(scene);
-  });
 });
 
 describe("measureScene", () => {
@@ -137,104 +72,6 @@ describe("measureScene", () => {
       chars: 2,
       utf16Bytes: 4,
     });
-  });
-});
-
-describe("probePersist", () => {
-  it("reports success without leaving the synthetic scene behind", () => {
-    const real = makeStressScene({ elements: 1, pointsPerElement: 3, seed: 7 });
-    persistScene(real);
-
-    const probe = probePersist(makeStressScene({ elements: 9, pointsPerElement: 40 }));
-
-    expect(probe.error).toBeNull();
-    expect(probe.elements).toBe(9);
-    // Measuring a write must not turn the measurement into the document.
-    expect(loadScene()).toEqual(real);
-  });
-
-  it("leaves the key absent if it was absent before", () => {
-    probePersist(makeStressScene({ elements: 2, pointsPerElement: 5 }));
-
-    expect(localStorage.getItem(SCENE_STORAGE_KEY)).toBeNull();
-  });
-
-  it("returns the QuotaExceededError instead of throwing it", () => {
-    globalThis.localStorage = createMemoryStorage(2_000);
-
-    const probe = probePersist(makeStressScene({ elements: 20, pointsPerElement: 50 }));
-
-    expect(probe.error).toBeInstanceOf(Error);
-    expect(probe.error?.name).toBe("QuotaExceededError");
-  });
-});
-
-describe("findStorageCeiling", () => {
-  it("finds the cap, in both characters and UTF-16 bytes", () => {
-    globalThis.localStorage = createMemoryStorage(20_000);
-
-    const ceiling = findStorageCeiling(100_000);
-
-    expect(ceiling.utf16Bytes).toBe(ceiling.chars * 2);
-    expect(ceiling.chars).toBeLessThanOrEqual(20_000);
-    expect(ceiling.chars).toBeGreaterThan(19_000);
-  });
-
-  it("reports the room that is left, not the room there was", () => {
-    globalThis.localStorage = createMemoryStorage(20_000);
-    const empty = findStorageCeiling(100_000);
-
-    persistScene(makeStressScene({ elements: 4, pointsPerElement: 20 }));
-    const occupied = findStorageCeiling(100_000);
-
-    expect(occupied.chars).toBeLessThan(empty.chars);
-  });
-
-  it("leaves storage exactly as it found it", () => {
-    const scene = makeStressScene({ elements: 2, pointsPerElement: 5 });
-    persistScene(scene);
-    const before = localStorage.getItem(SCENE_STORAGE_KEY);
-
-    findStorageCeiling(10_000);
-
-    expect(localStorage.getItem(STORAGE_PROBE_KEY)).toBeNull();
-    expect(localStorage.getItem(SCENE_STORAGE_KEY)).toBe(before);
-  });
-});
-
-describe("floodPersist", () => {
-  it("stops at the first write that throws, and reports both sides of it", () => {
-    globalThis.localStorage = createMemoryStorage(60_000);
-
-    const result = floodPersist({ pointsPerElement: 20, step: 2, maxElements: 200 });
-
-    expect(result.failed?.error?.name).toBe("QuotaExceededError");
-    expect(result.lastOk?.error).toBeNull();
-    expect(result.lastOk!.chars).toBeLessThan(result.failed!.chars);
-    expect(result.lastOk!.elements).toBe(result.failed!.elements - 2);
-  });
-
-  it("reports no failure when it runs out of elements first", () => {
-    const result = floodPersist({ pointsPerElement: 2, step: 1, maxElements: 3 });
-
-    expect(result.failed).toBeNull();
-    expect(result.lastOk?.elements).toBe(3);
-  });
-
-  it("restores whatever the scene key held before it ran", () => {
-    globalThis.localStorage = createMemoryStorage(60_000);
-    const scene = makeStressScene({ elements: 1, pointsPerElement: 3 });
-    persistScene(scene);
-
-    floodPersist({ pointsPerElement: 20, step: 2, maxElements: 200 });
-
-    expect(loadScene()).toEqual(scene);
-  });
-
-  it("removes the scene key again if nothing was stored before it ran", () => {
-    floodPersist({ pointsPerElement: 2, step: 1, maxElements: 2 });
-
-    expect(localStorage.getItem(SCENE_STORAGE_KEY)).toBeNull();
   });
 });
 
@@ -289,51 +126,5 @@ describe("fillStore", () => {
     // half of n × the final size — not one final size, and not n of them.
     expect(result.charsWritten).toBeGreaterThan(result.chars * 4);
     expect(result.charsWritten).toBeLessThan(result.chars * 10);
-  });
-});
-
-describe("corruptStoredScene", () => {
-  it("writes }{ for malformed — not JSON at all", () => {
-    corruptStoredScene("malformed");
-
-    expect(localStorage.getItem(SCENE_STORAGE_KEY)).toBe("}{");
-  });
-
-  it("writes a valid element with a type the renderer has no case for", () => {
-    corruptStoredScene("unknown-type");
-
-    const raw = localStorage.getItem(SCENE_STORAGE_KEY)!;
-    const parsed = JSON.parse(raw);
-    expect(Array.isArray(parsed)).toBe(true);
-    // The lesson: valid JSON and a plausible element, which loadScene's cast
-    // waves straight through. What happens next is a finding, not a test.
-    expect(parsed[0].type).toBe("triangle");
-  });
-
-  it("writes the envelope shape a future version would write", () => {
-    corruptStoredScene("wrong-shape");
-
-    const parsed = JSON.parse(localStorage.getItem(SCENE_STORAGE_KEY)!);
-    // Indistinguishable from corruption, because there is no version field.
-    expect(Array.isArray(parsed)).toBe(false);
-    expect(Array.isArray(parsed.elements)).toBe(true);
-  });
-
-  it("writes exactly the documented literals", () => {
-    for (const [kind, raw] of Object.entries(CORRUPTIONS)) {
-      corruptStoredScene(kind as keyof typeof CORRUPTIONS);
-      expect(localStorage.getItem(SCENE_STORAGE_KEY)).toBe(raw);
-    }
-  });
-});
-
-describe("clearStoredScene", () => {
-  it("removes the key, so the next load starts empty", () => {
-    persistScene(makeStressScene({ elements: 1, pointsPerElement: 3 }));
-
-    clearStoredScene();
-
-    expect(localStorage.getItem(SCENE_STORAGE_KEY)).toBeNull();
-    expect(loadScene()).toEqual([]);
   });
 });

@@ -1,5 +1,5 @@
-import { CanvasBoard } from '@react/CanvasBoard'
+import { DocumentLoader, type DocumentLoaderProps } from '@react/DocumentLoader'
 
-export default function App() {
-  return <CanvasBoard />
+export default function App({ loading }: DocumentLoaderProps) {
+  return <DocumentLoader loading={loading} />
 }
