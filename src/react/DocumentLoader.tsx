@@ -1,6 +1,7 @@
-import { Suspense, use } from "react";
-import type { LoadedDocument } from "@core/persistence";
+import { Suspense, use, useState } from "react";
+import type { LoadedDocument, QuarantineReason } from "@core/persistence";
 import { CanvasBoard } from "./CanvasBoard";
+import { Notice } from "./Notice";
 
 export interface DocumentLoaderProps {
   /** The in-flight load of the persisted document. */
@@ -24,6 +25,26 @@ export function DocumentLoader({ loading }: DocumentLoaderProps) {
 }
 
 function LoadedBoard({ loading }: DocumentLoaderProps) {
-  const { db, scene } = use(loading);
-  return <CanvasBoard db={db} initialScene={scene} />;
+  const { db, scene, quarantined } = use(loading);
+  // Only the notice is dismissed; the quarantine record itself is kept.
+  const [notice, setNotice] = useState(quarantined);
+
+  return (
+    <>
+      <CanvasBoard db={db} initialScene={scene} />
+      {notice && (
+        <Notice
+          message={QUARANTINE_MESSAGES[notice.reason]}
+          onDismiss={() => setNotice(null)}
+        />
+      )}
+    </>
+  );
 }
+
+const QUARANTINE_MESSAGES: Record<QuarantineReason, string> = {
+  invalid:
+    "Your saved drawing is damaged, so it couldn't be loaded. It was set aside, and you're starting on an empty canvas.",
+  "unknown-format-version":
+    "Your saved drawing comes from a newer version of the app, so it couldn't be loaded. It was set aside, and you're starting on an empty canvas.",
+};

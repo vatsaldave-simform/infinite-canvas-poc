@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createSceneStore, type Scene } from "@core/scene";
-import { fillStore, makeStressScene, measureScene } from "./diagnostics";
+import { CORRUPTIONS, fillStore, makeStressScene, measureScene } from "./diagnostics";
+import { validateDocument } from "./validate";
 
 describe("makeStressScene", () => {
   it("is deterministic — same options, byte-identical JSON", () => {
@@ -126,5 +127,28 @@ describe("fillStore", () => {
     // half of n × the final size — not one final size, and not n of them.
     expect(result.charsWritten).toBeGreaterThan(result.chars * 4);
     expect(result.charsWritten).toBeLessThan(result.chars * 10);
+  });
+});
+
+describe("CORRUPTIONS", () => {
+  // Each kind must be caught by the validator at a known place, or it would
+  // not exercise quarantine at all.
+  it.each([
+    ["unknown-type", "invalid", "elements[0].type"],
+    ["wrong-shape", "invalid", ""],
+    ["future-version", "unknown-format-version", "version"],
+    ["duplicate-id", "invalid", "elements[1].id"],
+  ] as const)("%s is rejected as %s at %j", (kind, reason, path) => {
+    expect(validateDocument(CORRUPTIONS[kind])).toEqual({ ok: false, reason, path });
+  });
+
+  it("wrong-shape is the old bare-array format", () => {
+    expect(Array.isArray(CORRUPTIONS["wrong-shape"])).toBe(true);
+  });
+
+  it("future-version is otherwise a valid document", () => {
+    const document = CORRUPTIONS["future-version"] as { elements: unknown };
+
+    expect(validateDocument({ version: 1, elements: document.elements }).ok).toBe(true);
   });
 });

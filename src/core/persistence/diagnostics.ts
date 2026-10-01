@@ -1,10 +1,12 @@
 /**
  * Instruments for stressing the persistence path on purpose: deterministic
- * synthetic scenes, what a scene costs to persist, and a live-store fill. None
- * of them depends on the storage mechanism. See ARCHITECTURE.md ("Persistence").
+ * synthetic scenes, what a scene costs to persist, a live-store fill, and
+ * deliberate corruptions of the stored document. See ARCHITECTURE.md
+ * ("Persistence").
  */
 
 import type { Scene, SceneElement, SceneStore } from "@core/scene";
+import { writeRawDocument } from "./indexed-db";
 
 /** Points in an unhurried real stroke — the default size for generated ones. */
 export const DEFAULT_STROKE_POINTS = 250;
@@ -149,4 +151,44 @@ export function fillStore(
   }
 
   return { ...cost, ms, charsWritten };
+}
+
+export type SceneCorruption =
+  | "unknown-type"
+  | "wrong-shape"
+  | "future-version"
+  | "duplicate-id";
+
+const corruptRectangle = {
+  id: "corrupt-1",
+  type: "rectangle",
+  x: 0,
+  y: 0,
+  width: 120,
+  height: 80,
+  style: PROBE_STYLE,
+};
+
+/**
+ * One stored value per thing the validator must catch. Each is plausible
+ * apart from its one defect, so it tests exactly that check.
+ */
+export const CORRUPTIONS: Record<SceneCorruption, unknown> = {
+  "unknown-type": { version: 1, elements: [{ ...corruptRectangle, type: "triangle" }] },
+  // The old bare-array format, where the envelope belongs.
+  "wrong-shape": [corruptRectangle],
+  // A valid document from a newer build: not understood, rather than corrupt.
+  "future-version": { version: 2, elements: [corruptRectangle] },
+  "duplicate-id": {
+    version: 1,
+    elements: [corruptRectangle, { ...corruptRectangle, type: "ellipse" }],
+  },
+};
+
+/** Overwrite the stored document with a value that breaks one assumption. */
+export function corruptDocument(
+  db: IDBDatabase,
+  kind: SceneCorruption,
+): Promise<void> {
+  return writeRawDocument(db, CORRUPTIONS[kind]);
 }

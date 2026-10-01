@@ -1,11 +1,13 @@
 import { useEffect } from "react";
 import type { SceneStore } from "@core/scene";
 import {
+  corruptDocument,
   deleteDocument,
   DEFAULT_STROKE_POINTS,
   fillStore,
   measureScene,
   type FillResult,
+  type SceneCorruption,
   type SceneCost,
 } from "@core/persistence";
 
@@ -20,6 +22,8 @@ export interface CanvasDiagnostics {
   measure(): SceneCost;
   /** Append n synthetic strokes to the live scene, one notification each. */
   fill(elements?: number, pointsPerElement?: number, precision?: number): FillResult;
+  /** Overwrite the stored document with a broken value. Reload to see it quarantined. */
+  corrupt(kind: SceneCorruption): Promise<void>;
   /** Delete the persisted document. Reload to start empty. */
   clear(): Promise<void>;
 }
@@ -40,6 +44,7 @@ export function useDiagnostics(store: SceneStore, db: IDBDatabase): void {
       // devtools console, where `fill(30, 250)` beats naming three fields.
       fill: (elements = 50, pointsPerElement = DEFAULT_STROKE_POINTS, precision) =>
         fillStore(store, { elements, pointsPerElement, precision }),
+      corrupt: (kind) => corruptDocument(db, kind),
       clear: () => deleteDocument(db),
     };
 
