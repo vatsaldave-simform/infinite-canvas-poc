@@ -1,6 +1,7 @@
 export { writeDocument, deleteDocument } from "./indexed-db";
 export type { QuarantineReason, QuarantineRecord } from "./format";
 export { loadDocument, type LoadedDocument } from "./load";
+export { createPersister, type Persister } from "./persister";
 export {
   makeStressScene,
   measureScene,

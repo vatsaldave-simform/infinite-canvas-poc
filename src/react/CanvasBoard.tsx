@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { createSceneStore, type Scene, type SceneElement } from "@core/scene";
 import { createEditorStore } from "@core/editor";
-import { writeDocument } from "@core/persistence";
+import { createPersister, writeDocument } from "@core/persistence";
 import { usePanZoom } from "./usePanZoom";
 import { useDrawTool, type Tool } from "./useDrawTool";
 import { useSelectTool } from "./useSelectTool";
 import { useDiagnostics } from "./useDiagnostics";
 import { Toolbar } from "./Toolbar";
+
+/** Quiet time after the last scene change before it is persisted. */
+const PERSIST_DELAY_MS = 300;
 
 export interface CanvasBoardProps {
   /** Open database connection the scene is persisted through. */
@@ -62,13 +65,27 @@ export function CanvasBoard({ db, initialScene }: CanvasBoardProps) {
   // Dev-only: exposes the persistence diagnostics on window.canvasDiagnostics.
   useDiagnostics(store, db);
 
-  // The scene is the document, so persist it on every mutation. Deliberately
-  // uncoalesced: a drag commits live to the store, so this clones and writes
-  // the whole scene on every pointermove.
+  // Persist the scene, coalesced: a drag notifies on every pointermove. Flush
+  // on hide/unload so a change inside the debounce window is not dropped.
   useEffect(() => {
-    return store.subscribe(() => {
-      void writeDocument(db, store.getScene());
-    });
+    const persister = createPersister(
+      store,
+      (scene) => void writeDocument(db, scene),
+      { delay: PERSIST_DELAY_MS },
+    );
+    const flushIfHidden = () => {
+      if (document.visibilityState === "hidden") persister.flush();
+    };
+    document.addEventListener("visibilitychange", flushIfHidden);
+    window.addEventListener("pagehide", persister.flush);
+
+    return () => {
+      document.removeEventListener("visibilitychange", flushIfHidden);
+      window.removeEventListener("pagehide", persister.flush);
+      // Write any pending change rather than drop it with the subscription.
+      persister.flush();
+      persister.dispose();
+    };
   }, [store, db]);
 
   useEffect(() => {
