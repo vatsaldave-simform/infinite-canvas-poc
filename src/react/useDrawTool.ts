@@ -6,6 +6,7 @@ import {
   createFreehand,
   normalizeRect,
   DEFAULT_STYLE,
+  MIN_ELEMENT_SIZE,
   type FreehandElement,
   type Point,
   type SceneElement,
@@ -16,9 +17,6 @@ import { pointerToWorld } from './pointer'
 
 /** Active canvas tool. Selecting and moving live in useSelectTool. */
 export type Tool = 'select' | 'rectangle' | 'ellipse' | 'freehand'
-
-/** Drags smaller than this (world units) are treated as a click, not a shape. */
-const MIN_DRAG_SIZE = 2
 
 /** Placeholder id for the in-progress draft — never committed to the scene. */
 const DRAFT_ID = 'draft'
@@ -93,7 +91,7 @@ export function useDrawTool({
         if (p.y < minY) minY = p.y
         else if (p.y > maxY) maxY = p.y
       }
-      return maxX - minX < MIN_DRAG_SIZE && maxY - minY < MIN_DRAG_SIZE
+      return maxX - minX < MIN_ELEMENT_SIZE && maxY - minY < MIN_ELEMENT_SIZE
     }
 
     // Clear any in-progress draft and release capture. Shared by pointerup's
@@ -167,7 +165,7 @@ export function useDrawTool({
       if (!from) return
       const { width, height } = normalizeRect(from, end)
       // Ignore a click / near-degenerate drag — no zero-area shapes.
-      if (width < MIN_DRAG_SIZE || height < MIN_DRAG_SIZE) {
+      if (width < MIN_ELEMENT_SIZE || height < MIN_ELEMENT_SIZE) {
         scheduleRender() // clear the (empty) draft
         return
       }

@@ -28,3 +28,4 @@ export {
 } from './hit-test'
 export { getBoundingBox, type Bounds } from './bounds'
 export { translateElement } from './translate'
+export { MIN_ELEMENT_SIZE } from './resize'
