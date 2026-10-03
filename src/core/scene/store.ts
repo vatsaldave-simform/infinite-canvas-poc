@@ -31,7 +31,8 @@ export interface SceneStore {
   /**
    * Take the element with this id out of the scene, immutably. The elements
    * left keep their order. Notifies subscribers. Same contract as
-   * replaceElement: an unknown id does nothing, not even allocate a new array.
+   * replaceElement: an unknown id does nothing, and does not allocate a new
+   * array.
    */
   removeElement(id: string): void;
 
@@ -72,8 +73,8 @@ export function createSceneStore(initial?: Scene): SceneStore {
       });
     },
     removeElement(id: string) {
-      const index = current.findIndex((element) => element.id === id);
-      if (index === -1) return;
+      const exists = current.some((element) => element.id === id);
+      if (!exists) return;
 
       current = current.filter((element) => element.id !== id);
 

@@ -25,8 +25,9 @@ export interface CanvasBoardProps {
 
 /**
  * CanvasBoard — owns the <canvas> DOM node and its HiDPI sizing, and wires the
- * pan/zoom, draw and select tools, delete key, and toolbar together. Scene state lives in the core
- * SceneStore; this component only subscribes and wires DOM/pointer events.
+ * pan/zoom, draw and select tools, delete key, and toolbar together. Scene
+ * state lives in the core SceneStore; this component only subscribes and wires
+ * DOM/pointer events.
  * Mounted by DocumentLoader only once the persisted document has arrived.
  */
 export function CanvasBoard({ db, initialScene, notices }: CanvasBoardProps) {
