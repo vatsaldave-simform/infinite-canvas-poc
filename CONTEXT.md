@@ -162,6 +162,36 @@ document. It also clears the selection, since there is nothing left to select.
 **Remove** — the scene operation underneath a delete: taking an element out of
 the scene by identity. Knows nothing about selection.
 
+**Insert** — the scene operation that puts an element into the scene at a
+given place in z-order. It is how undo brings a deleted element back exactly
+where it was. *Adding* an element is the special case that places it on top.
+
 > The same layering again: *fit* and *remove* are engine operations on elements
 > and the scene; *resize* and *delete* are editor actions; dragging a handle and
 > pressing a key are UI input.
+
+---
+
+## History
+
+**History** — the record of changes made to the document during this session.
+Undo walks back through it and redo walks forward. It is **linear**: making a
+new change after undoing throws away whatever could have been redone. Only
+changes to the **document** are recorded, never editor state, so selecting an
+element or switching tool is not something you can undo. History lives only as
+long as the page does. It is never persisted, so a reload starts with empty
+history.
+
+**Undo** / **Redo** — the editor actions of reverting the most recent change in
+history, and re-applying the most recently undone one. The unit is one whole
+editor action: one drawn element, one move, one resize, one delete. It is never
+the individual store writes a drag is made of. A gesture interrupted partway
+still counts as a change if it changed the document.
+
+**History entry** — one change recorded in history, described in terms of the
+scene operation it was: an **add**, a **replace** (before and after), or a
+**remove** (the element and where it stood in z-order). A move and a resize are
+both replaces; history does not know which gesture produced one. An entry is
+plain data, not a *command*: it holds no behaviour of its own, and history
+decides how to undo and redo it. Undoing an entry also selects the element it
+touched, when that element is still in the scene afterwards.
