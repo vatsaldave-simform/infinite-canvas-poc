@@ -1,14 +1,12 @@
 import { useEffect, type RefObject } from "react";
 import { getHandleAt, type HandleName, type Viewport } from "@core/canvas";
 import {
-  canResize,
   fitElement,
   getBoundingBox,
   hitTest,
   translateElement,
   MIN_ELEMENT_SIZE,
   type Bounds,
-  type ResizableElement,
   type SceneElement,
   type SceneStore,
   type Point,
@@ -113,16 +111,15 @@ export function useSelectTool({
       );
     };
 
-    // The selected element, if it is one that shows resize handles.
-    const getSelectedResizable = (): ResizableElement | null => {
+    // The selected element, if there is one.
+    const getSelected = (): SceneElement | null => {
       const selectedId = editorStore.getSelectedId();
-      const selected = store.getScene().find((el) => el.id === selectedId);
-      return selected && canResize(selected) ? selected : null;
+      return store.getScene().find((el) => el.id === selectedId) ?? null;
     };
 
     // The handle of the selected element under the pointer, if any.
     const pickHandle = (e: PointerEvent): HandleName | null => {
-      const selected = getSelectedResizable();
+      const selected = getSelected();
       if (!selected) return null;
       return getHandleAt(
         getBoundingBox(selected),
@@ -152,7 +149,7 @@ export function useSelectTool({
       // it, or where it sits outside the shape.
       const handle = pickHandle(e);
       if (handle) {
-        pressed = getSelectedResizable();
+        pressed = getSelected();
         grabbedHandle = handle;
         canvas.style.cursor = HANDLE_CURSORS[handle];
       } else {
@@ -188,7 +185,7 @@ export function useSelectTool({
         y: currentWorld.y - pressWorld.y,
       };
 
-      if (grabbedHandle && canResize(pressed)) {
+      if (grabbedHandle) {
         const target = getResizeTarget(
           getBoundingBox(pressed),
           grabbedHandle,

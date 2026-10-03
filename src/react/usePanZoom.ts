@@ -9,7 +9,7 @@ import {
   zoomAtPoint,
   type Viewport,
 } from '@core/canvas'
-import { canResize, getBoundingBox } from '@core/scene'
+import { getBoundingBox } from '@core/scene'
 import type { Scene, SceneElement, SceneStore } from '@core/scene'
 import type { EditorStore } from '@core/editor'
 
@@ -88,7 +88,7 @@ export function usePanZoom(
           ctx,
           getBoundingBox(selected),
           viewportRef.current,
-          showHandlesRef.current && canResize(selected),
+          showHandlesRef.current,
         )
       }
     }

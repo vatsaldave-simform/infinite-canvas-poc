@@ -30,7 +30,5 @@ export { getBoundingBox, type Bounds } from './bounds'
 export { translateElement } from './translate'
 export {
   MIN_ELEMENT_SIZE,
-  canResize,
   fitElement,
-  type ResizableElement,
 } from './resize'
