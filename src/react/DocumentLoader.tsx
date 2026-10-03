@@ -1,5 +1,9 @@
 import { Suspense, use, useState } from "react";
-import type { LoadedDocument, QuarantineReason } from "@core/persistence";
+import type {
+  LoadedDocument,
+  QuarantineReason,
+  QuarantineRecord,
+} from "@core/persistence";
 import { CanvasBoard } from "./CanvasBoard";
 import { Notice } from "./Notice";
 
@@ -25,22 +29,48 @@ export function DocumentLoader({ loading }: DocumentLoaderProps) {
 }
 
 function LoadedBoard({ loading }: DocumentLoaderProps) {
-  const { db, scene, quarantined } = use(loading);
+  const loaded = use(loading);
+
+  switch (loaded.status) {
+    case "loaded":
+      return <CanvasBoard db={loaded.db} initialScene={loaded.scene} />;
+    case "quarantined":
+      return <QuarantinedBoard db={loaded.db} record={loaded.record} />;
+    case "unavailable":
+      return (
+        <CanvasBoard
+          db={null}
+          initialScene={[]}
+          // Not dismissible: once out of sight, a canvas that persists nothing
+          // looks exactly like one that does.
+          notices={<Notice tone="error" message={UNAVAILABLE_MESSAGE} />}
+        />
+      );
+  }
+}
+
+function QuarantinedBoard({ db, record }: { db: IDBDatabase; record: QuarantineRecord }) {
   // Only the notice is dismissed; the quarantine record itself is kept.
-  const [notice, setNotice] = useState(quarantined);
+  const [noticeShown, setNoticeShown] = useState(true);
 
   return (
-    <>
-      <CanvasBoard db={db} initialScene={scene} />
-      {notice && (
-        <Notice
-          message={QUARANTINE_MESSAGES[notice.reason]}
-          onDismiss={() => setNotice(null)}
-        />
-      )}
-    </>
+    <CanvasBoard
+      db={db}
+      initialScene={[]}
+      notices={
+        noticeShown && (
+          <Notice
+            message={QUARANTINE_MESSAGES[record.reason]}
+            onDismiss={() => setNoticeShown(false)}
+          />
+        )
+      }
+    />
   );
 }
+
+const UNAVAILABLE_MESSAGE =
+  "Saving is off: this browser won't let the app store your drawing, so it will be lost when you close the tab.";
 
 const QUARANTINE_MESSAGES: Record<QuarantineReason, string> = {
   invalid:

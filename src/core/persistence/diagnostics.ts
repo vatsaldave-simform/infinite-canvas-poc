@@ -1,8 +1,8 @@
 /**
  * Instruments for stressing the persistence path on purpose: deterministic
- * synthetic scenes, what a scene costs to persist, a live-store fill, and
- * deliberate corruptions of the stored document. See ARCHITECTURE.md
- * ("Persistence").
+ * synthetic scenes, what a scene costs to persist, a live-store fill,
+ * deliberate corruptions of the stored document, and writes that fail on
+ * demand. See ARCHITECTURE.md ("Persistence").
  */
 
 import type { Scene, SceneElement, SceneStore } from "@core/scene";
@@ -191,4 +191,32 @@ export function corruptDocument(
   kind: SceneCorruption,
 ): Promise<void> {
   return writeRawDocument(db, CORRUPTIONS[kind]);
+}
+
+/** A switch that makes the scene's writes fail, for exercising the failure path. */
+export interface WriteFaults {
+  /** Fail every write from now on (`true`), or let them through again. */
+  setFailing(failing: boolean): void;
+  /** Wrap a write so that, while failing is set, it rejects without running. */
+  wrap(write: (scene: Scene) => Promise<void>): (scene: Scene) => Promise<void>;
+}
+
+/**
+ * Off until switched on. The injected failure is the one a full disk raises,
+ * so it travels the same path a real quota error would.
+ */
+export function createWriteFaults(): WriteFaults {
+  let failing = false;
+
+  return {
+    setFailing: (next) => {
+      failing = next;
+    },
+    wrap: (write) => (scene) =>
+      failing
+        ? Promise.reject(
+            new DOMException("Write failed on purpose (diagnostics).", "QuotaExceededError"),
+          )
+        : write(scene),
+  };
 }

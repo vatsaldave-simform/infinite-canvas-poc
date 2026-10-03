@@ -1,21 +1,25 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createSceneStore, type Scene, type SceneElement } from "@core/scene";
 import { createEditorStore } from "@core/editor";
-import { createPersister, writeDocument } from "@core/persistence";
+import { createWriteFaults } from "@core/persistence";
 import { usePanZoom } from "./usePanZoom";
 import { useDrawTool, type Tool } from "./useDrawTool";
 import { useSelectTool } from "./useSelectTool";
+import { usePersistence } from "./usePersistence";
 import { useDiagnostics } from "./useDiagnostics";
 import { Toolbar } from "./Toolbar";
-
-/** Quiet time after the last scene change before it is persisted. */
-const PERSIST_DELAY_MS = 300;
+import { Notice, NoticeStack } from "./Notice";
 
 export interface CanvasBoardProps {
-  /** Open database connection the scene is persisted through. */
-  db: IDBDatabase;
+  /**
+   * Open database connection the scene is persisted through, or `null` when
+   * IndexedDB is unavailable and persisting is off for the session.
+   */
+  db: IDBDatabase | null;
   /** The persisted scene, already loaded. */
   initialScene: Scene;
+  /** The caller's own notices, stacked with the board's so none overlap. */
+  notices?: ReactNode;
 }
 
 /**
@@ -24,7 +28,7 @@ export interface CanvasBoardProps {
  * SceneStore; this component only subscribes and wires DOM/pointer events.
  * Mounted by DocumentLoader only once the persisted document has arrived.
  */
-export function CanvasBoard({ db, initialScene }: CanvasBoardProps) {
+export function CanvasBoard({ db, initialScene, notices }: CanvasBoardProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // The scene store lives in core/; created once, seeded with the loaded
   // scene so it is born holding the document — no empty-then-populate flash
@@ -62,31 +66,14 @@ export function CanvasBoard({ db, initialScene }: CanvasBoardProps) {
     editorStore,
     active: tool === "select",
   });
+  // Lets the diagnostics fail writes on purpose. Dev-only, so production writes
+  // go straight to storage and the switch is tree-shaken out.
+  const [writeFaults] = useState(() =>
+    import.meta.env.DEV ? createWriteFaults() : null,
+  );
+  const persistStatus = usePersistence(store, db, writeFaults);
   // Dev-only: exposes the persistence diagnostics on window.canvasDiagnostics.
-  useDiagnostics(store, db);
-
-  // Persist the scene, coalesced: a drag notifies on every pointermove. Flush
-  // on hide/unload so a change inside the debounce window is not dropped.
-  useEffect(() => {
-    const persister = createPersister(
-      store,
-      (scene) => void writeDocument(db, scene),
-      { delay: PERSIST_DELAY_MS },
-    );
-    const flushIfHidden = () => {
-      if (document.visibilityState === "hidden") persister.flush();
-    };
-    document.addEventListener("visibilitychange", flushIfHidden);
-    window.addEventListener("pagehide", persister.flush);
-
-    return () => {
-      document.removeEventListener("visibilitychange", flushIfHidden);
-      window.removeEventListener("pagehide", persister.flush);
-      // Write any pending change rather than drop it with the subscription.
-      persister.flush();
-      persister.dispose();
-    };
-  }, [store, db]);
+  useDiagnostics(store, db, writeFaults);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -116,6 +103,15 @@ export function CanvasBoard({ db, initialScene }: CanvasBoardProps) {
     <>
       <Toolbar tool={tool} onToolChange={setTool} />
       <canvas ref={canvasRef} />
+      <NoticeStack>
+        {persistStatus === "failing" && (
+          <Notice
+            tone="error"
+            message="Changes aren't being saved. Your next change will try again."
+          />
+        )}
+        {notices}
+      </NoticeStack>
     </>
   );
 }

@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { LEGACY_SCENE_KEY, removeLegacyScene } from "./load";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { LEGACY_SCENE_KEY, loadDocument, removeLegacyScene } from "./load";
 
 /** Node has no localStorage (ADR-0001); a Map-backed fake is all this needs. */
 function createMemoryStorage(): Storage {
@@ -65,5 +65,65 @@ describe("removeLegacyScene", () => {
       writable: true,
       value: createMemoryStorage(),
     });
+  });
+});
+
+/**
+ * Stand in for `indexedDB` with an `open` whose request fires one handler on a
+ * later task, as the real one does. Only the open request is faked: enough to
+ * reach each way an open ends, and nothing a real database would answer.
+ */
+function stubOpen(handler: "onsuccess" | "onblocked", result?: unknown) {
+  vi.stubGlobal("indexedDB", {
+    open: () => {
+      const request = { result } as unknown as IDBOpenDBRequest;
+      setTimeout(() => (request[handler] as (() => void) | null)?.());
+      return request;
+    },
+  });
+}
+
+describe("loadDocument", () => {
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("resolves with storage unavailable when IndexedDB does not exist", async () => {
+    // Node has no IndexedDB at all (ADR-0001), as some locked-down browsers don't.
+    const loaded = await loadDocument();
+
+    expect(loaded).toEqual({ status: "unavailable", error: expect.any(ReferenceError) });
+    expect(console.error).toHaveBeenCalled();
+  });
+
+  it("resolves with storage unavailable when the open is blocked", async () => {
+    // Another tab holds an older connection and will not let go; without
+    // handling `onblocked`, the open would wait forever.
+    stubOpen("onblocked");
+
+    const loaded = await loadDocument();
+
+    expect(loaded.status).toBe("unavailable");
+  });
+
+  it("closes the connection when the document cannot be read", async () => {
+    const db = {
+      close: vi.fn(),
+      transaction: () => {
+        throw new DOMException("Internal error.", "UnknownError");
+      },
+    };
+    stubOpen("onsuccess", db);
+
+    const loaded = await loadDocument();
+
+    // Persisting off: a document that was never read is never written over.
+    expect(loaded.status).toBe("unavailable");
+    expect(db.close).toHaveBeenCalled();
   });
 });

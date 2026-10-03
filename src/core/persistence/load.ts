@@ -16,14 +16,17 @@ import { validateDocument } from "./validate";
 /** Where the previous mechanism persisted the scene. Removed, never read. */
 export const LEGACY_SCENE_KEY = "infinite-canvas:scene";
 
-export interface LoadedDocument {
-  /** The open connection, for every later write. */
-  db: IDBDatabase;
-  /** The persisted scene to seed the store with; empty after a quarantine. */
-  scene: Scene;
-  /** The record the document was set aside as, if it could not be loaded. */
-  quarantined: QuarantineRecord | null;
-}
+/**
+ * Every way a load can end. None of them is an error thrown at the caller, so
+ * the board's `use()` never throws into render.
+ */
+export type LoadedDocument =
+  /** The persisted scene, or an empty one if nothing was persisted yet. */
+  | { status: "loaded"; db: IDBDatabase; scene: Scene }
+  /** The document could not be loaded and was set aside; the scene starts empty. */
+  | { status: "quarantined"; db: IDBDatabase; record: QuarantineRecord }
+  /** IndexedDB would not open or read: start empty, and persist nothing this session. */
+  | { status: "unavailable"; error: unknown };
 
 /**
  * Remove the old localStorage scene. Unconditional and idempotent, so it runs
@@ -40,16 +43,29 @@ export function removeLegacyScene(): void {
 
 /**
  * Drop the legacy key, open the database and read the document. A document
- * that fails validation is quarantined whole, and the scene starts empty.
+ * that fails validation is quarantined whole, and the scene starts empty. If
+ * the database cannot be opened, read or quarantined into, storage is
+ * unavailable: the document is left untouched and nothing is written over it.
  */
 export async function loadDocument(): Promise<LoadedDocument> {
   removeLegacyScene();
-  const db = await openDatabase();
+  let db: IDBDatabase | undefined;
+  try {
+    db = await openDatabase();
+    return await readAndValidate(db);
+  } catch (error) {
+    db?.close();
+    console.error("IndexedDB is unavailable, so persisting is off for this session.", error);
+    return { status: "unavailable", error };
+  }
+}
+
+async function readAndValidate(db: IDBDatabase): Promise<LoadedDocument> {
   const value = await readDocument(db);
-  if (value === undefined) return { db, scene: [], quarantined: null };
+  if (value === undefined) return { status: "loaded", db, scene: [] };
 
   const result = validateDocument(value);
-  if (result.ok) return { db, scene: result.scene, quarantined: null };
+  if (result.ok) return { status: "loaded", db, scene: result.scene };
 
   const record: QuarantineRecord = {
     value,
@@ -63,5 +79,5 @@ export async function loadDocument(): Promise<LoadedDocument> {
     `Persisted document quarantined (${record.reason} at ${record.path || "the root"}). ` +
       `It is kept in IndexedDB: ${DATABASE_NAME} → ${QUARANTINE_OBJECT_STORE}.`,
   );
-  return { db, scene: [], quarantined: record };
+  return { status: "quarantined", db, record };
 }

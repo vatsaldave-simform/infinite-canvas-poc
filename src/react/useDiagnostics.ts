@@ -9,6 +9,7 @@ import {
   type FillResult,
   type SceneCorruption,
   type SceneCost,
+  type WriteFaults,
 } from "@core/persistence";
 
 /**
@@ -26,6 +27,8 @@ export interface CanvasDiagnostics {
   corrupt(kind: SceneCorruption): Promise<void>;
   /** Delete the persisted document. Reload to start empty. */
   clear(): Promise<void>;
+  /** Make every write fail (or, given `false`, succeed again) until reload. */
+  failWrites(failing?: boolean): void;
 }
 
 declare global {
@@ -34,7 +37,11 @@ declare global {
   }
 }
 
-export function useDiagnostics(store: SceneStore, db: IDBDatabase): void {
+export function useDiagnostics(
+  store: SceneStore,
+  db: IDBDatabase | null,
+  writeFaults: WriteFaults | null,
+): void {
   useEffect(() => {
     if (!import.meta.env.DEV) return;
 
@@ -44,12 +51,16 @@ export function useDiagnostics(store: SceneStore, db: IDBDatabase): void {
       // devtools console, where `fill(30, 250)` beats naming three fields.
       fill: (elements = 50, pointsPerElement = DEFAULT_STROKE_POINTS, precision) =>
         fillStore(store, { elements, pointsPerElement, precision }),
-      corrupt: (kind) => corruptDocument(db, kind),
-      clear: () => deleteDocument(db),
+      corrupt: (kind) => (db ? corruptDocument(db, kind) : persistingOff()),
+      clear: () => (db ? deleteDocument(db) : persistingOff()),
+      failWrites: (failing = true) => writeFaults?.setFailing(failing),
     };
 
     return () => {
       delete window.canvasDiagnostics;
     };
-  }, [store, db]);
+  }, [store, db, writeFaults]);
 }
+
+const persistingOff = () =>
+  Promise.reject(new Error("IndexedDB is unavailable; persisting is off for this session."));

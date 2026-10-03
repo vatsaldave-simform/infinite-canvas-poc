@@ -23,11 +23,14 @@ type ObjectStoreName = typeof DOCUMENTS_OBJECT_STORE | typeof QUARANTINE_OBJECT_
  * Open the database, creating whichever object stores this database version
  * adds over the one on disk. The connection closes itself on `versionchange`,
  * so a later build opening a higher version in another tab is never blocked by
- * this one.
+ * this one. An open that *is* blocked, by a tab that will not let go, rejects
+ * rather than waiting indefinitely; if it is unblocked later, the late
+ * connection is closed again.
  */
 export function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
+    let blocked = false;
 
     request.onupgradeneeded = (event) => {
       const db = request.result;
@@ -38,10 +41,15 @@ export function openDatabase(): Promise<IDBDatabase> {
     };
     request.onsuccess = () => {
       const db = request.result;
+      if (blocked) return db.close();
       db.onversionchange = () => db.close();
       resolve(db);
     };
     request.onerror = () => reject(request.error);
+    request.onblocked = () => {
+      blocked = true;
+      reject(new DOMException("Another tab is blocking the database open.", "AbortError"));
+    };
   });
 }
 

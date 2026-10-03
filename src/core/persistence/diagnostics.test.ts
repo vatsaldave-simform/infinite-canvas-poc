@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createSceneStore, type Scene } from "@core/scene";
-import { CORRUPTIONS, fillStore, makeStressScene, measureScene } from "./diagnostics";
+import {
+  CORRUPTIONS,
+  createWriteFaults,
+  fillStore,
+  makeStressScene,
+  measureScene,
+} from "./diagnostics";
 import { validateDocument } from "./validate";
 
 describe("makeStressScene", () => {
@@ -150,5 +156,40 @@ describe("CORRUPTIONS", () => {
     const document = CORRUPTIONS["future-version"] as { elements: unknown };
 
     expect(validateDocument({ version: 1, elements: document.elements }).ok).toBe(true);
+  });
+});
+
+describe("createWriteFaults", () => {
+  const scene: Scene = makeStressScene({ elements: 1, pointsPerElement: 2 });
+
+  it("passes writes through until told to fail", async () => {
+    const write = vi.fn<(scene: Scene) => Promise<void>>(() => Promise.resolve());
+    const faulty = createWriteFaults().wrap(write);
+
+    await expect(faulty(scene)).resolves.toBeUndefined();
+    expect(write).toHaveBeenCalledWith(scene);
+  });
+
+  it("fails every write as a full disk would, without running it", async () => {
+    const write = vi.fn<(scene: Scene) => Promise<void>>(() => Promise.resolve());
+    const faults = createWriteFaults();
+    const faulty = faults.wrap(write);
+
+    faults.setFailing(true);
+
+    await expect(faulty(scene)).rejects.toMatchObject({ name: "QuotaExceededError" });
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("lets writes through again once failing is switched off", async () => {
+    const write = vi.fn<(scene: Scene) => Promise<void>>(() => Promise.resolve());
+    const faults = createWriteFaults();
+    const faulty = faults.wrap(write);
+
+    faults.setFailing(true);
+    faults.setFailing(false);
+
+    await expect(faulty(scene)).resolves.toBeUndefined();
+    expect(write).toHaveBeenCalledOnce();
   });
 });
