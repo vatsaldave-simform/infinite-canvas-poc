@@ -69,7 +69,8 @@ new one whenever it changes, so a captured reference would go stale where an
 identity stays valid.
 
 **Tool** — the active input mode chosen in the toolbar: select, or one of the
-drawable types.
+drawable types. Editor state in meaning, but held by the UI layer, because only
+input handling and the toolbar depend on it.
 
 ---
 
@@ -132,3 +133,35 @@ gesture and no editor involved.
 > These three name three different layers and that is the point — the word tells
 > you where the code belongs. *Translate* is engine geometry, *move* is an
 > editor action, *drag* is UI input.
+
+**Handle** — one of the small squares on the selection box that a drag grabs to
+resize: one at each corner and one at each edge's midpoint. Editor chrome, not
+part of any element. Sized in **screen** pixels, like slop, and found before any
+element is: a handle answers even where another element is drawn over it.
+
+**Resize** — the editor action of changing a selected element's size by
+dragging a handle. A corner handle changes both axes; an edge handle changes
+one and leaves the other alone. Dragging a handle past the anchor **flips** the
+element rather than stopping it. A resize never makes an element smaller than
+drawing would have accepted, so it cannot leave behind something too small to
+select again. Resizing never changes stroke width, and never changes z-order.
+
+**Anchor** — the corner or edge opposite the grabbed handle: the part of the
+element that stays fixed in the world while it is resized.
+
+**Fit** — the geometric operation underneath a resize: placing an element into
+a target box so that its bounding box becomes that box, producing a new element.
+A freehand stroke is stretched to fit, every point with it; a stroke that is
+perfectly flat along one axis cannot be stretched along it. The inverse of
+taking an element's bounding box. Not "scale" — *scale* already belongs to the
+viewport, where it means zoom.
+
+**Delete** — the editor action of taking the selected element out of the
+document. It also clears the selection, since there is nothing left to select.
+
+**Remove** — the scene operation underneath a delete: taking an element out of
+the scene by identity. Knows nothing about selection.
+
+> The same layering again: *fit* and *remove* are engine operations on elements
+> and the scene; *resize* and *delete* are editor actions; dragging a handle and
+> pressing a key are UI input.

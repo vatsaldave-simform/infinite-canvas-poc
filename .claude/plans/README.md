@@ -18,7 +18,7 @@ Infinite-canvas drawing POC (Excalidraw-style), a **learning project** built str
 | M9 | Persistence pass 1: localStorage | B | ✅ done | [`m09-localstorage-persistence.md`](m09-localstorage-persistence.md) |
 | M10 | Deliberately break localStorage | discuss / A | ✅ done | [`m10-break-localstorage.md`](m10-break-localstorage.md) |
 | M11 | Persistence pass 2: IndexedDB migration | A / B | ✅ done | [`m11-indexeddb-persistence.md`](m11-indexeddb-persistence.md) |
-| **M12** | **Resize + Delete** | **mix** | **⬅ next** | *(added when started)* |
+| **M12** | **Resize + Delete** | **mix (waived)** | **⬅ in progress** | [`m12-resize-delete.md`](m12-resize-delete.md) |
 | M13 | Undo/redo command stack | A | ⬜ | *(added when started)* |
 
 **Out of scope (do not build):** multi-select / rubber-band, freehand smoothing beyond basic capture, text / arrows / connectors, PNG/JSON export, realtime collab, any backend.
