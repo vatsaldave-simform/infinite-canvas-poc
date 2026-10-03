@@ -5,11 +5,14 @@ import {
   deleteDocument,
   DEFAULT_STROKE_POINTS,
   fillStore,
+  makeStressScene,
   measureScene,
+  probeWrite,
   type FillResult,
   type SceneCorruption,
   type SceneCost,
   type WriteFaults,
+  type WriteProbeResult,
 } from "@core/persistence";
 
 /**
@@ -23,6 +26,11 @@ export interface CanvasDiagnostics {
   measure(): SceneCost;
   /** Append n synthetic strokes to the live scene, one notification each. */
   fill(elements?: number, pointsPerElement?: number, precision?: number): FillResult;
+  /**
+   * Time one whole-scene write of n synthetic strokes: the synchronous clone
+   * and the commit, separately. The stored document is restored afterwards.
+   */
+  probe(elements: number, pointsPerElement?: number): Promise<WriteProbeResult>;
   /** Overwrite the stored document with a broken value. Reload to see it quarantined. */
   corrupt(kind: SceneCorruption): Promise<void>;
   /** Delete the persisted document. Reload to start empty. */
@@ -51,6 +59,10 @@ export function useDiagnostics(
       // devtools console, where `fill(30, 250)` beats naming three fields.
       fill: (elements = 50, pointsPerElement = DEFAULT_STROKE_POINTS, precision) =>
         fillStore(store, { elements, pointsPerElement, precision }),
+      probe: (elements, pointsPerElement = DEFAULT_STROKE_POINTS) =>
+        db
+          ? probeWrite(db, makeStressScene({ elements, pointsPerElement }))
+          : persistingOff(),
       corrupt: (kind) => (db ? corruptDocument(db, kind) : persistingOff()),
       clear: () => (db ? deleteDocument(db) : persistingOff()),
       failWrites: (failing = true) => writeFaults?.setFailing(failing),

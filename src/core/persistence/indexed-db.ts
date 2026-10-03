@@ -74,8 +74,43 @@ export function readDocument(db: IDBDatabase): Promise<unknown> {
  * once the transaction commits.
  */
 export function writeDocument(db: IDBDatabase, scene: Scene): Promise<void> {
-  const record: StoredDocument = { version: FORMAT_VERSION, elements: scene };
-  return writeRawDocument(db, record);
+  return writeRawDocument(db, toStoredDocument(scene));
+}
+
+function toStoredDocument(scene: Scene): StoredDocument {
+  return { version: FORMAT_VERSION, elements: scene };
+}
+
+/** How long one document write took, split where the main thread is released. */
+export interface WriteTiming {
+  /** Milliseconds inside `put()`: the synchronous structured clone. */
+  cloneMs: number;
+  /** Milliseconds from `put()` returning to the transaction's `complete`. */
+  commitMs: number;
+}
+
+/**
+ * `writeDocument`, timed: the same transaction and the same value, with the
+ * synchronous `put()` and the wait for the commit measured separately.
+ * Diagnostics only.
+ */
+export async function writeDocumentTimed(
+  db: IDBDatabase,
+  scene: Scene,
+): Promise<WriteTiming> {
+  const record = toStoredDocument(scene);
+  let cloneMs = 0;
+  let queuedAt = 0;
+
+  await inReadwrite(db, [DOCUMENTS_OBJECT_STORE], (transaction) => {
+    const documents = transaction.objectStore(DOCUMENTS_OBJECT_STORE);
+    const started = performance.now();
+    documents.put(record, DOCUMENT_KEY);
+    queuedAt = performance.now();
+    cloneMs = queuedAt - started;
+  });
+
+  return { cloneMs, commitMs: performance.now() - queuedAt };
 }
 
 /** Write any value as the document, bypassing the envelope. Diagnostics only. */

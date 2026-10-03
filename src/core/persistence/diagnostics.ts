@@ -1,12 +1,18 @@
 /**
  * Instruments for stressing the persistence path on purpose: deterministic
- * synthetic scenes, what a scene costs to persist, a live-store fill,
- * deliberate corruptions of the stored document, and writes that fail on
- * demand. See ARCHITECTURE.md ("Persistence").
+ * synthetic scenes, what a scene costs to persist, how long one write takes, a
+ * live-store fill, deliberate corruptions of the stored document, and writes
+ * that fail on demand. See ARCHITECTURE.md ("Persistence").
  */
 
 import type { Scene, SceneElement, SceneStore } from "@core/scene";
-import { writeRawDocument } from "./indexed-db";
+import {
+  deleteDocument,
+  readDocument,
+  writeDocumentTimed,
+  writeRawDocument,
+  type WriteTiming,
+} from "./indexed-db";
 
 /** Points in an unhurried real stroke — the default size for generated ones. */
 export const DEFAULT_STROKE_POINTS = 250;
@@ -151,6 +157,27 @@ export function fillStore(
   }
 
   return { ...cost, ms, charsWritten };
+}
+
+export interface WriteProbeResult extends SceneCost, WriteTiming {}
+
+/**
+ * What one whole-scene write costs, through the same transaction a real write
+ * uses. The stored document is put back afterwards, exactly as it was found —
+ * or deleted again if there was none. Run it with the canvas idle: a real write
+ * landing mid-probe would be overwritten by the restore.
+ */
+export async function probeWrite(db: IDBDatabase, scene: Scene): Promise<WriteProbeResult> {
+  const cost = measureScene(scene);
+  const previous = await readDocument(db);
+
+  try {
+    return { ...cost, ...(await writeDocumentTimed(db, scene)) };
+  } finally {
+    await (previous === undefined
+      ? deleteDocument(db)
+      : writeRawDocument(db, previous));
+  }
 }
 
 export type SceneCorruption =
