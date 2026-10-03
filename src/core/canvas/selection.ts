@@ -15,6 +15,7 @@ const SELECTION_MARGIN_PX = 4;
 const SELECTION_LINE_WIDTH = 1;
 const SELECTION_DASH = [4, 4];
 
+const HANDLE_FILL = "#ffffff";
 /** Side of a drawn handle square, in screen px. */
 const HANDLE_SIZE_PX = 8;
 /** Side of the square a press must land in to grab a handle, in screen px. */
@@ -95,11 +96,13 @@ export function drawSelectionBox(
 
   if (showHandles) {
     ctx.setLineDash([]);
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = HANDLE_FILL;
     const half = HANDLE_SIZE_PX / 2;
     for (const handle of getHandles(bounds, viewport)) {
-      ctx.fillRect(handle.x - half, handle.y - half, HANDLE_SIZE_PX, HANDLE_SIZE_PX);
-      ctx.strokeRect(handle.x - half, handle.y - half, HANDLE_SIZE_PX, HANDLE_SIZE_PX);
+      const handleLeft = handle.x - half;
+      const handleTop = handle.y - half;
+      ctx.fillRect(handleLeft, handleTop, HANDLE_SIZE_PX, HANDLE_SIZE_PX);
+      ctx.strokeRect(handleLeft, handleTop, HANDLE_SIZE_PX, HANDLE_SIZE_PX);
     }
   }
   ctx.restore();
