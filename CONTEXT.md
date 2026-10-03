@@ -83,7 +83,8 @@ speech but should not name code.
 **Store** — always the **in-memory** observable holding live state
 (`SceneStore`, `EditorStore`). Never the persisted copy: browser storage is
 *storage*, and letting one word mean both is the ambiguity this entry exists to
-prevent.
+prevent. For the same reason, the containers inside browser storage are always
+**object stores**, never bare "stores".
 
 Only the scene is persisted. **Editor state** and the **viewport** are not, so a
 reload restores the *document*, not the session: the drawing comes back, the

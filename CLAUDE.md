@@ -33,7 +33,7 @@ Dependencies flow **`react/` → `core/`, never the reverse.** This is enforced 
 
 Path aliases (defined in both `vite.config.ts` and `tsconfig.json`): `@core/*` → `src/core/*`, `@react/*` → `src/react/*`. Use them instead of long relative paths.
 
-Entry flow: `index.html` → `src/main.tsx` (React root, `StrictMode`) → `src/App.tsx` → `src/react/CanvasBoard.tsx`.
+Entry flow: `index.html` → `src/main.tsx` (starts the document load, React root, `StrictMode`) → `src/App.tsx` → `src/react/DocumentLoader.tsx` (Suspense gate) → `src/react/CanvasBoard.tsx`.
 
 ### Scene data model (`src/core/scene/`)
 

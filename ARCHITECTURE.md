@@ -17,7 +17,7 @@ src/react/  — the UI: owns the <canvas> DOM node, wires pointer/wheel events,
 
 Path aliases: `@core/*` → `src/core/*`, `@react/*` → `src/react/*` (defined in `vite.config.ts` and `tsconfig.json`).
 
-Entry flow: `index.html` → `src/main.tsx` (React root, StrictMode) → `src/App.tsx` → `src/react/CanvasBoard.tsx`.
+Entry flow: `index.html` → `src/main.tsx` (starts the document load, React root, StrictMode) → `src/App.tsx` → `src/react/DocumentLoader.tsx` (suspends until the document arrives) → `src/react/CanvasBoard.tsx`. See *Persistence → Loading*.
 
 ## Coordinate spaces: world vs screen
 
@@ -141,30 +141,116 @@ Draw flow (`useDrawTool`): the toolbar picks a tool (`rectangle` / `ellipse` / `
 
 ## Persistence
 
-`src/core/persistence/local-storage.ts` — `persistScene(scene)` and `loadScene()`, over a single localStorage key, `infinite-canvas:scene`. The stored value is the scene as a **bare JSON array**: the scene *is* an array and its order *is* z-order, so the persisted form says exactly that and nothing more — no envelope, no schema version. An empty scene is stored as `"[]"` rather than removing the key.
+The scene is persisted to **IndexedDB**, through the raw API with no wrapper. This replaced a deliberately naive localStorage pass, which was broken on purpose and measured. The reasoning is in ADR-0003 (the mechanism) and ADR-0004 (what happens to a document that will not load). The decisions are in `.claude/plans/m11-indexeddb-persistence.md`.
 
-Only the **scene** is persisted. Editor state (selection, tool) and the viewport are not, so a reload restores the *document*, not the session: shapes return at their world coordinates, the camera sits at the world origin at 1×, nothing is selected. See `CONTEXT.md` ("Persistence") for the vocabulary — *store* always means the in-memory observable, never the persisted copy, and *persist* is the verb for crossing into storage.
+Only the **scene** is persisted. Editor state (selection, tool) and the viewport are not, so a reload restores the *document*, not the session: shapes return at their world coordinates, the camera sits at the world origin at 1×, nothing is selected. See `CONTEXT.md` ("Persistence") for the vocabulary — *store* always means the in-memory observable, never the persisted copy (IndexedDB's containers are always *object stores*), and *persist* is the verb for crossing into storage.
 
-`CanvasBoard` owns the *when*, as it does for every other input in the app:
+### What is stored
 
-- **Load** seeds the store at construction — `useState(() => createSceneStore(loadScene()))`. The store is born holding the document, so there is no empty-then-populate flash and no "is it loaded yet" state anywhere. This bakes in the assumption that loading is **synchronous**, which is where the IndexedDB pass (M11) will have to intervene.
-- **Persist** runs on every store notification, uncoalesced. Because a drag commits live (ADR-0002), that is one `JSON.stringify` + `setItem` per `pointermove` — hundreds per gesture.
+`src/core/persistence/indexed-db.ts` opens one database, `infinite-canvas`, with two object stores:
 
-This pass is **deliberately naive**: no schema version, no validation, no error handling, no quota handling, no coalescing, and no abstraction over the storage mechanism. Every one of those omissions was intentional, so that the failures could be provoked and measured rather than guessed at — the reasoning is in `.claude/plans/m09-localstorage-persistence.md`.
+- `documents` — one record under the fixed key `"scene"`: the **whole scene** as `{ version: 1, elements }` (`StoredDocument`, in `format.ts`). `elements` is the scene array as it is, so array order is still z-order. It is stored by structured clone, not as JSON.
+- `quarantine` — auto-increment, holding documents that could not be loaded (see below).
 
-They have now been measured, and **ADR-0003 replaces this mechanism with IndexedDB** as a result. In short: the quota is 5 MiB per origin (≈431 freehand strokes, reached in an afternoon); exceeding it throws out of `store.addElement`, after which the app keeps drawing into a document that has silently stopped saving; one whole-scene write costs 15–17 ms at 200 strokes, which is a whole frame per `pointermove`; and the unvalidated cast in `loadScene()` turns a bad stored value into either a white screen or — worse — an invisible element that hit-tests true everywhere, because the `never` exhaustiveness guards are compile-time only. Full numbers in `.claude/plans/m10-findings.md`.
+A whole-scene snapshot rather than one record per element, because the scene already *is* a snapshot: the store notifies with no description of what changed. Per-element records would need a diff on every write, an ordering field to carry z-order, and atomicity across records so that a reload never sees half a move.
+
+Two versions move independently. The **format version** (`FORMAT_VERSION`, 1) is the shape of the stored document. The **database version** (`DATABASE_VERSION`, 2) is the object-store layout: `onupgradeneeded` creates whichever object stores the database on disk lacks. There is no *upgrade* code, because nothing older than format version 1 is ever read. The old localStorage key (`infinite-canvas:scene`) is removed, unread, on every boot (`removeLegacyScene`). Removing it unconditionally needs no "already done" flag.
+
+Every readwrite transaction calls `commit()` explicitly once its requests are queued, because a write issued during page unload may never reach the implicit end-of-task commit.
+
+### Loading
+
+`src/main.tsx` calls `loadDocument()` once per page load, **outside any render**, so StrictMode's double render and double-mounted effects cannot start it twice. The promise is handed through `App` to `src/react/DocumentLoader.tsx`, which suspends on it with React 19's `use()` inside `<Suspense fallback={null}>`. `CanvasBoard` mounts only once the scene is in hand, and seeds its store with it: `useState(() => createSceneStore(initialScene))`.
+
+So the store is still **born holding the document**, although loading is now asynchronous. The "not arrived yet" state exists, but only *above* the board: no store, hook or tool ever sees it. No stroke can be drawn before the document arrives, so there is nothing for the load to clobber or merge with. The fallback is blank because the canvas has no background of its own. An empty page is what the canvas looks like before it paints, and a local load is fast enough that a "Loading…" label would only flash.
+
+`loadDocument()` (`src/core/persistence/load.ts`) **never rejects**. Every outcome resolves to a `LoadedDocument`, so nothing throws into render and the load path needs no error boundary:
+
+| status | when | the board gets |
+|---|---|---|
+| `loaded` | the document validated, or nothing was stored yet | the scene, and the open connection |
+| `quarantined` | the document failed validation | an empty scene, the connection, and a dismissible notice |
+| `unavailable` | IndexedDB would not open, read or quarantine (missing, blocked by another tab, a security error) | an empty scene, `db: null`, and a persistent notice |
+
+### Validation and quarantine
+
+`validateDocument` (`src/core/persistence/validate.ts`) is pure and never throws, whatever it is given. It is **all-or-nothing**: one bad element rejects the whole document. It checks:
+
+- **the envelope:** `version` is 1 and `elements` is an array
+- **every element:** a non-empty `id`, unique across the scene; a known `type`; finite `x`/`y`
+- **geometry, per type:** finite, non-negative `width`/`height`; or a non-empty `points` array of finite `{x, y}`
+- **the style:** string colours and a finite, non-negative `strokeWidth`
+
+Unknown extra fields are ignored, and colours are not parsed as CSS. Both are deliberate: a change that alters meaning bumps the format version instead, and the canvas already ignores an invalid colour string.
+
+The result carries a reason and the path of the first error (`elements[37].type`). A *newer* format version is reported as `unknown-format-version`, not `invalid`, because it may be a perfectly good document from a newer build. Each check answers a failure that was either measured or reasoned out. An unknown `type` would be invisible yet hit-test true everywhere, because the `never` exhaustiveness guards are compile-time only. A repeated id would break selection and `replaceElement`, which both find elements by id.
+
+A document that fails is **quarantined** (ADR-0004). It is moved intact into the `quarantine` object store as `{ value, reason, path, quarantinedAt }`, in one transaction across both object stores, so it is never in both places and never in neither. The app then starts empty and persists normally, and nothing it writes can reach the quarantined copy. Records are kept forever. Recovery is devtools-only, so the console names where the record went.
+
+### Writing: the coalescing persister
+
+`createPersister(store, write, { delay, onStatusChange })` (`src/core/persistence/persister.ts`) subscribes to the scene store. It writes the latest scene `delay` ms after the **last** notification: a trailing debounce. A move-drag notifies on every `pointermove` (ADR-0002), so debouncing turns the whole gesture into one write. The persister knows neither the DOM nor IndexedDB. `write` is a plain function parameter and the only seam: the tests pass a fake, and the board passes the real one.
+
+`src/react/usePersistence.ts` mounts it with a 300 ms delay and `writeDocument`, and owns the DOM side:
+
+- **Flush on hide.** `visibilitychange → hidden` and `pagehide` write any pending change at once, so backgrounding or closing the tab inside the debounce window does not drop the last change. This is best-effort: a transaction started during unload is not guaranteed to commit.
+- **Flush on unmount**, before disposing, so a pending change is written rather than dropped with the subscription.
+- **No max-wait.** Drawing a stroke notifies only on release, so only move-drags produce bursts, and losing an in-progress drag to a crash is acceptable.
+
+Coalescing is necessary, not just tidy, because IndexedDB did not take the write off the main thread. `put()` structured-clones its value **synchronously**, before it returns, and only the commit is asynchronous (ADR-0003's amendment). Measured in Chrome 143, the clone costs about 4.7 ms at 100 strokes, 9 ms at 200 and 18 ms at 400. That is 34–48% less than localStorage's `JSON.stringify` + `setItem` from 100 strokes up, but still more than a 60 Hz frame at 400 strokes (`.claude/plans/m11-findings.md`). The debounce keeps that cost out of the drag.
+
+### Persist status
+
+The persister reports a `PersistStatus`, `ok` or `failing`, decided by the outcome of each write. There is **no retry**: every write is a whole snapshot, so the next coalesced write *is* the retry. Only the newest write's outcome counts, so a slow failure cannot override a later success.
+
+A failed write is logged to the console and sets the status to `failing`. Causes include quota, a transaction abort, eviction, or a closed connection. `CanvasBoard` then shows a persistent "Changes aren't being saved" notice, which clears on the next successful write. Healthy operation shows nothing.
+
+When the load is `unavailable`, the board gets `db: null` and `usePersistence` mounts no persister. **Persisting is off for the session.** The canvas is fully drawable, and a non-dismissible notice says the drawing will be lost when the tab closes. Without the notice, the board would look exactly like one that is saving.
+
+Notices (`src/react/Notice.tsx`) stack at the bottom of the viewport. The stack lets pointer events through, so only a notice's own box is off-limits: the canvas around it stays drawable, and the toolbar is never covered.
+
+### Known limitation: multiple tabs
+
+**Two tabs open on the same document clobber each other, silently.** Each tab loads the document once, at boot, and from then on persists *its own* whole scene. Neither sees the other's changes. Whichever tab writes last wins, and the next reload loads its scene: anything drawn only in the other tab is gone, and neither tab says so.
+
+Getting this right needs cross-tab coordination (a `BroadcastChannel`, Web Locks, or a merge strategy). That is realtime collaboration in miniature, which is out of scope for the project.
+
+`onversionchange` is not multi-tab support. It closes this tab's connection when another tab opens the database at a higher version, so that schema change is never blocked by this one. After that, this tab's writes fail and it shows the "not being saved" notice.
 
 ### Diagnostics
 
-`src/core/persistence/diagnostics.ts` is the instrument those measurements came from, and it is deliberately not defensive — it provokes failures rather than preventing them. It generates deterministic synthetic scenes (`makeStressScene`), measures what a scene costs in the units the quota charges (`measureScene`, `probePersist`), drives the real write path until it throws (`floodPersist`, `findStorageCeiling`), fills a live store one `addElement` at a time to expose the O(n²) write amplification (`fillStore`), and corrupts the stored value in three specific ways (`corruptStoredScene`).
+The persistence diagnostics are the instruments the measurements come from, exposed on `window.canvasDiagnostics` in a dev build. Most live in `src/core/persistence/diagnostics.ts`. They are deliberately not defensive: they provoke failures rather than preventing them. Named here by their console names, they followed the mechanism:
 
-No engine path calls into it: its only caller is `src/react/useDiagnostics.ts`, which attaches it to `window.canvasDiagnostics` behind `import.meta.env.DEV`. Because that guard is statically false in a production build and the module has no top-level side effects, the whole harness is tree-shaken out — verified by grepping the built bundle, not assumed. Core exposes the instruments; React decides when they exist — the same division as persistence itself.
+- **Kept**, because they never depended on the mechanism: the deterministic, seeded synthetic scenes (`makeStressScene`) behind `fill` and `probe`; `measure` (`measureScene`), still in JSON characters so sizes stay comparable with the localStorage measurements; and `fill` (`fillStore`), which appends to the live store one `addElement` at a time, so every append notifies.
+- **Retargeted to IndexedDB:**
+  - `probe` (`probeWrite`) times one whole-scene write through the real transaction, reporting the synchronous clone and the commit separately. It restores the stored document afterwards. It no longer takes a precision, because rounding was deferred.
+  - `corrupt` (`corruptDocument`) overwrites the stored document with one of four values, one per thing validation must catch: `unknown-type`; `wrong-shape` (the old bare array where the envelope belongs); `future-version`; and `duplicate-id`.
+  - `clear` deletes the IndexedDB document (`deleteDocument`, from `indexed-db.ts`).
+- **New:**
+  - `failWrites` (`createWriteFaults`) wraps the write so that it rejects with a `QuotaExceededError` on demand, which travels the same path a real failure would.
+  - The dev-only `?indexeddb=off` query parameter (handled in `src/main.tsx`) boots as if the browser had no IndexedDB, which exercises the persisting-off path.
+- **Removed:**
+  - `ceiling` and `flood` (`findStorageCeiling`, `floodPersist`), which measured localStorage's 5 MiB ceiling.
+  - The `malformed` corruption: structured clone has no parse step, so it has no IndexedDB equivalent.
+
+From the devtools console, in a dev build:
+
+| `canvasDiagnostics.…` | does |
+|---|---|
+| `measure()` | what the current scene costs to store |
+| `fill(n, pts?, precision?)` | append n synthetic strokes to the live scene |
+| `probe(n, pts?)` | time one whole-scene write of n strokes, clone and commit separately |
+| `corrupt(kind)` | overwrite the stored document; reload to see it quarantined |
+| `clear()` | delete the stored document; reload to start empty |
+| `failWrites(failing?)` | make every write fail, or succeed again, until reload |
+
+No engine path calls into the diagnostics. Their only callers are in React. `src/react/useDiagnostics.ts` attaches them to `window.canvasDiagnostics`. `CanvasBoard` creates the write-fault switch, behind `import.meta.env.DEV`, and `usePersistence` wraps the real write with it only when it exists. Because that guard is statically false in a production build, and the modules have no top-level side effects, the whole harness is tree-shaken out. That is verified by grepping the built bundle, not assumed. Core exposes the instruments; React decides when they exist, the same division as persistence itself.
 
 ## File map
 
 ```
 src/
-├── main.tsx / App.tsx           React root → CanvasBoard
+├── main.tsx / App.tsx           starts loadDocument(), React root → DocumentLoader
 ├── core/
 │   ├── scene/
 │   │   ├── types.ts             SceneElement union, Scene (z-order = array order)
@@ -178,8 +264,12 @@ src/
 │   │   ├── store.ts             createEditorStore — observable selection state
 │   │   └── index.ts             barrel → @core/editor
 │   ├── persistence/
-│   │   ├── local-storage.ts     persistScene / loadScene — the document, one key
-│   │   ├── diagnostics.ts       stress scenes, storage probes, deliberate corruption
+│   │   ├── format.ts            StoredDocument envelope, FORMAT_VERSION, QuarantineRecord
+│   │   ├── indexed-db.ts        openDatabase, read/write/delete/quarantine the document
+│   │   ├── validate.ts          validateDocument — all-or-nothing, first error's path
+│   │   ├── load.ts              loadDocument — never rejects: loaded / quarantined / unavailable
+│   │   ├── persister.ts         createPersister — debounced writes, persist status
+│   │   ├── diagnostics.ts       stress scenes, write probe, corruptions, write faults
 │   │   └── index.ts             barrel → @core/persistence
 │   └── canvas/
 │       ├── transform.ts         screenToWorld / worldToScreen / zoomAtPoint
@@ -189,12 +279,15 @@ src/
 │       ├── selection.ts         drawSelectionBox — selection highlight chrome
 │       └── index.ts             barrel → @core/canvas
 └── react/
-    ├── CanvasBoard.tsx          owns <canvas> + sizing; wires store, toolbar, tools
+    ├── DocumentLoader.tsx       Suspense gate on the load; picks the board's notices
+    ├── CanvasBoard.tsx          owns <canvas> + sizing; wires store, toolbar, tools, persistence
     ├── usePanZoom.ts            viewport state, wheel input, render loop
     ├── useDrawTool.ts           pointer-drag shape creation
     ├── useSelectTool.ts         click-to-select + drag-to-move
+    ├── usePersistence.ts        mounts the persister, flushes on hide, returns persist status
     ├── useDiagnostics.ts        dev-only window.canvasDiagnostics handle
     ├── pointer.ts               pointerToWorld — shared event → world point
+    ├── Notice.tsx               Notice + NoticeStack — pinned messages that cover only their own box
     └── Toolbar.tsx              tool picker (UI chrome)
 ```
 
