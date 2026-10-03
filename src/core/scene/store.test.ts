@@ -110,4 +110,61 @@ describe("createSceneStore", () => {
       expect(listener).not.toHaveBeenCalled();
     });
   });
+
+  describe("removeElement", () => {
+    it("removes the element with that id", () => {
+      const store = createSceneStore(threeElements());
+
+      store.removeElement("middle");
+
+      expect(store.getScene().find((el) => el.id === "middle")).toBeUndefined();
+    });
+
+    it("keeps the z-order of the remaining elements", () => {
+      const store = createSceneStore(threeElements());
+
+      store.removeElement("middle");
+
+      expect(store.getScene().map((el) => el.id)).toEqual(["bottom", "top"]);
+    });
+
+    it("does not mutate the previous scene array", () => {
+      const initial = threeElements();
+      const store = createSceneStore(initial);
+
+      store.removeElement("middle");
+
+      expect(initial.map((el) => el.id)).toEqual(["bottom", "middle", "top"]);
+      expect(store.getScene()).not.toBe(initial);
+    });
+
+    it("notifies subscribers", () => {
+      const store = createSceneStore(threeElements());
+      const listener = vi.fn();
+      store.subscribe(listener);
+
+      store.removeElement("middle");
+
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps the same array reference when the id is unknown", () => {
+      const store = createSceneStore(threeElements());
+      const before = store.getScene();
+
+      store.removeElement("does-not-exist");
+
+      expect(store.getScene()).toBe(before);
+    });
+
+    it("does not notify subscribers when the id is unknown", () => {
+      const store = createSceneStore(threeElements());
+      const listener = vi.fn();
+      store.subscribe(listener);
+
+      store.removeElement("does-not-exist");
+
+      expect(listener).not.toHaveBeenCalled();
+    });
+  });
 });
