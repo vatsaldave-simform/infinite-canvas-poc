@@ -26,6 +26,10 @@ const HANDLE_CURSORS: Record<HandleName, string> = {
   se: "nwse-resize",
   ne: "nesw-resize",
   sw: "nesw-resize",
+  n: "ns-resize",
+  s: "ns-resize",
+  e: "ew-resize",
+  w: "ew-resize",
 };
 
 /** Push a size at least MIN_ELEMENT_SIZE away from zero, keeping its sign. */
@@ -36,17 +40,21 @@ function clampSize(size: number): number {
 
 /**
  * The box to fit an element into while one of its handles is dragged by
- * `delta` (world units). The grabbed corner follows the pointer and the anchor,
- * the opposite corner, stays put. Dragging past the anchor makes the width or
- * height negative, which fitElement reads as a flip.
+ * `delta` (world units). The edges the handle grabs follow the pointer and the
+ * opposite edges, the anchor, stay put. A corner grabs two edges; an edge
+ * handle grabs one, and the other axis keeps its original size. Dragging past
+ * the anchor makes the width or height negative, which fitElement reads as a
+ * flip.
  */
 function getResizeTarget(
   original: Bounds,
   handle: HandleName,
   delta: Point,
 ): Bounds {
-  const movesLeft = handle === "nw" || handle === "sw";
-  const movesTop = handle === "nw" || handle === "ne";
+  const movesLeft = handle === "nw" || handle === "w" || handle === "sw";
+  const movesRight = handle === "ne" || handle === "e" || handle === "se";
+  const movesTop = handle === "nw" || handle === "n" || handle === "ne";
+  const movesBottom = handle === "sw" || handle === "s" || handle === "se";
 
   let left = original.x;
   let top = original.y;
@@ -54,12 +62,16 @@ function getResizeTarget(
   let bottom = original.y + original.height;
 
   if (movesLeft) left += delta.x;
-  else right += delta.x;
+  if (movesRight) right += delta.x;
   if (movesTop) top += delta.y;
-  else bottom += delta.y;
+  if (movesBottom) bottom += delta.y;
 
-  const width = clampSize(right - left);
-  const height = clampSize(bottom - top);
+  // An axis the handle leaves alone is not clamped, so a thin freehand stroke
+  // keeps its size there.
+  const changesWidth = movesLeft || movesRight;
+  const changesHeight = movesTop || movesBottom;
+  const width = changesWidth ? clampSize(right - left) : original.width;
+  const height = changesHeight ? clampSize(bottom - top) : original.height;
 
   // Measure the clamped size out from the anchor, so the anchor never moves.
   return {
@@ -81,8 +93,8 @@ interface SelectToolParams {
 
 /**
  * The select tool: click to select the topmost element (empty click clears),
- * drag a selected element to move it, drag one of its corner handles to resize
- * it, Escape to deselect.
+ * drag a selected element to move it, drag one of its handles to resize it,
+ * Escape to deselect.
  *
  * Moving and resizing commit live: every pointermove writes the new element
  * through the scene store, so the selection highlight and hit-testing follow

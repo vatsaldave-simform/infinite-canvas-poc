@@ -1,9 +1,9 @@
 /**
  * Draws the selection highlight — a dashed box around a selected element's
- * world-space bounding box, with resize handles on its corners when asked.
- * This is editor chrome, painted after the scene in its own render step (never
- * inside drawElement). The margin and handle sizes are constants in SCREEN
- * pixels, so they look the same at any zoom.
+ * world-space bounding box, with resize handles on its corners and edges when
+ * asked. This is editor chrome, painted after the scene in its own render step
+ * (never inside drawElement). The margin and handle sizes are constants in
+ * SCREEN pixels, so they look the same at any zoom.
  */
 
 import type { Bounds, Point } from "@core/scene";
@@ -21,8 +21,11 @@ const HANDLE_SIZE_PX = 8;
 /** Side of the square a press must land in to grab a handle, in screen px. */
 const HANDLE_HIT_SIZE_PX = 12;
 
-/** A corner of the selection box, named by compass direction. */
-export type HandleName = "nw" | "ne" | "se" | "sw";
+/**
+ * A resize handle, named by compass direction: a corner ("nw", "ne", "se",
+ * "sw") or the midpoint of an edge ("n", "e", "s", "w").
+ */
+export type HandleName = "nw" | "ne" | "se" | "sw" | "n" | "e" | "s" | "w";
 
 /** A resize handle and its centre, in screen px. */
 export interface Handle {
@@ -46,18 +49,28 @@ function getSelectionBoxEdges(bounds: Bounds, viewport: Viewport) {
 }
 
 /**
- * The resize handles for a selected element's bounding box, at the corners of
- * the dashed selection box. Both drawing and hit-testing use this list, so they
- * can never disagree about where a handle is.
+ * The eight resize handles for a selected element's bounding box, on the
+ * corners and edge midpoints of the dashed selection box. Both drawing and
+ * hit-testing use this list, so they can never disagree about where a handle
+ * is.
+ *
+ * Corners come first. On a small box the edge midpoints sit on top of the
+ * corners, and a corner can do everything an edge can, so a corner should win.
  */
 export function getHandles(bounds: Bounds, viewport: Viewport): Handle[] {
   const { left, top, right, bottom } = getSelectionBoxEdges(bounds, viewport);
+  const middleX = (left + right) / 2;
+  const middleY = (top + bottom) / 2;
 
   return [
     { name: "nw", x: left, y: top },
     { name: "ne", x: right, y: top },
     { name: "se", x: right, y: bottom },
     { name: "sw", x: left, y: bottom },
+    { name: "n", x: middleX, y: top },
+    { name: "e", x: right, y: middleY },
+    { name: "s", x: middleX, y: bottom },
+    { name: "w", x: left, y: middleY },
   ];
 }
 
@@ -98,7 +111,9 @@ export function drawSelectionBox(
     ctx.setLineDash([]);
     ctx.fillStyle = HANDLE_FILL;
     const half = HANDLE_SIZE_PX / 2;
-    for (const handle of getHandles(bounds, viewport)) {
+    // Paint corners last, so where handles overlap the one on top is the one
+    // a press grabs.
+    for (const handle of getHandles(bounds, viewport).reverse()) {
       const handleLeft = handle.x - half;
       const handleTop = handle.y - half;
       ctx.fillRect(handleLeft, handleTop, HANDLE_SIZE_PX, HANDLE_SIZE_PX);
