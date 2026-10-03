@@ -65,16 +65,13 @@ export function useSelectTool({
 
       canvas.setPointerCapture(e.pointerId);
       canvas.style.cursor = "grabbing";
-      // TODO(M8): capture pressWorld / pressScreen / pressed here.
       pressWorld = pointerToWorld(canvas, e, viewportRef.current);
       pressScreen = { x: e.clientX, y: e.clientY };
       pressed = hit;
     };
 
     const onPointerMove = (e: PointerEvent) => {
-      // TODO(M8): if a press is in progress, arm past the threshold, apply the
-      // move, and return — hover feedback must not run during a drag.
-
+      // While a press is in progress, hover feedback must not run.
       if (pressScreen && pressed && pressWorld) {
         const currentScreen = { x: e.clientX, y: e.clientY };
         const currentWorld = pointerToWorld(canvas, e, viewportRef.current);
@@ -100,7 +97,6 @@ export function useSelectTool({
     };
 
     const endGesture = (e: PointerEvent) => {
-      // TODO(M8): clear the press state here.
       pressScreen = null;
       pressWorld = null;
       pressed = null;
