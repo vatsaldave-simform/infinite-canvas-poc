@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createSceneStore, type Scene, type SceneElement } from "@core/scene";
 import { createEditorStore } from "@core/editor";
+import { createHistory } from "@core/history";
 import { createWriteFaults } from "@core/persistence";
 import { usePanZoom } from "./usePanZoom";
 import { useDrawTool, type Tool } from "./useDrawTool";
 import { useSelectTool } from "./useSelectTool";
-import { useDeleteKey } from "./useDeleteKey";
+import { useEditorKeys } from "./useEditorKeys";
 import { usePersistence } from "./usePersistence";
 import { useDiagnostics } from "./useDiagnostics";
 import { Toolbar } from "./Toolbar";
@@ -25,7 +26,7 @@ export interface CanvasBoardProps {
 
 /**
  * CanvasBoard — owns the <canvas> DOM node and its HiDPI sizing, and wires the
- * pan/zoom, draw and select tools, delete key, and toolbar together. Scene
+ * pan/zoom, draw and select tools, editor keys, and toolbar together. Scene
  * state lives in the core SceneStore; this component only subscribes and wires
  * DOM/pointer events.
  * Mounted by DocumentLoader only once the persisted document has arrived.
@@ -41,6 +42,9 @@ export function CanvasBoard({ db, initialScene, notices }: CanvasBoardProps) {
   // Editor state (current selection) — kept separate from the scene document,
   // so it is never persisted and survives immutable element replacement.
   const [editorStore] = useState(() => createEditorStore());
+  // Undo/redo history for this page's scene. Like selection, it is never
+  // persisted: a reload starts with empty history.
+  const [history] = useState(() => createHistory(store));
 
   const [tool, setTool] = useState<Tool>("rectangle");
   // In-progress shape, shared with the render loop so it paints on top.
@@ -67,9 +71,10 @@ export function CanvasBoard({ db, initialScene, notices }: CanvasBoardProps) {
     viewportRef,
     store,
     editorStore,
+    history,
     active: tool === "select",
   });
-  useDeleteKey({ canvasRef, store, editorStore });
+  useEditorKeys({ canvasRef, store, editorStore, history });
   // Lets the diagnostics fail writes on purpose. Dev-only, so production writes
   // go straight to storage and the switch is tree-shaken out.
   const [writeFaults] = useState(() =>

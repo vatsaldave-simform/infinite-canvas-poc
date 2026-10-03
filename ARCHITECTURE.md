@@ -213,8 +213,8 @@ units, because it is a rule about the document, not about pointing precision.
 
 Delete or Backspace (the delete key on a Mac keyboard) deletes the selected
 element **in any tool**, so "draw, oops, delete" works straight after
-auto-select. That is why it is its own small hook, `src/react/useDeleteKey.ts`,
-rather than part of `useSelectTool`, which only runs in the select tool.
+auto-select. That is why it lives in its own small hook, `src/react/useEditorKeys.ts`,
+rather than in `useSelectTool`, which only runs in the select tool.
 There is no toolbar button: the toolbar holds tools only.
 
 - **Delete = remove + deselect.** The hook calls `store.removeElement(id)`,
@@ -383,7 +383,7 @@ src/
     ├── usePanZoom.ts            viewport state, wheel input, render loop
     ├── useDrawTool.ts           pointer-drag shape creation
     ├── useSelectTool.ts         click-to-select, drag-to-move, drag-a-handle-to-resize
-    ├── useDeleteKey.ts          Delete/Backspace deletes the selection, any tool
+    ├── useEditorKeys.ts         Delete/Backspace deletes the selection, any tool
     ├── usePersistence.ts        mounts the persister, flushes on hide, returns persist status
     ├── useDiagnostics.ts        dev-only window.canvasDiagnostics handle
     ├── pointer.ts               pointerToScreen / pointerToWorld — shared event → point

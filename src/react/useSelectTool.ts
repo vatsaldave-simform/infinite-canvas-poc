@@ -12,6 +12,7 @@ import {
   type Point,
 } from "@core/scene";
 import type { EditorStore } from "@core/editor";
+import type { History } from "@core/history";
 import { pointerToScreen, pointerToWorld } from "./pointer";
 
 /** Click slop for hit-testing, in SCREEN px; divided by scale → world tolerance. */
@@ -87,6 +88,7 @@ interface SelectToolParams {
   viewportRef: RefObject<Viewport>;
   store: SceneStore;
   editorStore: EditorStore;
+  history: History;
   /** Only wired up while the select tool is the active tool. */
   active: boolean;
 }
@@ -102,12 +104,17 @@ interface SelectToolParams {
  * repaints on every store mutation). Each frame is recomputed from the element
  * and press point captured on pointerdown, never from the previous frame.
  * See docs/adr/0002-drag-commits-live-to-the-scene-store.md.
+ *
+ * However many writes a drag made, it is recorded in history once, as one
+ * replace, when the gesture ends. A click that never started a drag changed
+ * nothing, so it records nothing.
  */
 export function useSelectTool({
   canvasRef,
   viewportRef,
   store,
   editorStore,
+  history,
   active,
 }: SelectToolParams) {
   useEffect(() => {
@@ -209,7 +216,21 @@ export function useSelectTool({
       }
     };
 
+    // Record a finished move or resize as one replace, from the element as it
+    // was pressed to the element as the drag left it.
+    const recordDrag = () => {
+      if (!dragging || !pressed) return;
+
+      const pressedId = pressed.id;
+      const current = store.getScene().find((el) => el.id === pressedId);
+      if (!current) return;
+
+      history.record({ kind: "replace", before: pressed, after: current });
+    };
+
     const endGesture = (e: PointerEvent) => {
+      recordDrag();
+
       pressScreen = null;
       pressWorld = null;
       pressed = null;
@@ -224,7 +245,8 @@ export function useSelectTool({
     // A captured drag can be cut short by the browser (touch interruption,
     // gesture takeover). The element stays where the last move put it — every
     // change was genuinely committed, so rewinding would be the only place
-    // in the app where committed state un-does itself. See ADR-0002.
+    // in the app where committed state un-does itself. See ADR-0002. That
+    // change is real, so endGesture records it like any other drag.
     const onPointerCancel = (e: PointerEvent) => endGesture(e);
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -244,5 +266,5 @@ export function useSelectTool({
       window.removeEventListener("keydown", onKeyDown);
       canvas.style.cursor = "default";
     };
-  }, [canvasRef, viewportRef, store, editorStore, active]);
+  }, [canvasRef, viewportRef, store, editorStore, history, active]);
 }
