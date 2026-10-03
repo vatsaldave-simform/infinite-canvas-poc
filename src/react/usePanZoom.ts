@@ -9,7 +9,7 @@ import {
   zoomAtPoint,
   type Viewport,
 } from '@core/canvas'
-import { getBoundingBox } from '@core/scene'
+import { canResize, getBoundingBox } from '@core/scene'
 import type { Scene, SceneElement, SceneStore } from '@core/scene'
 import type { EditorStore } from '@core/editor'
 
@@ -49,6 +49,8 @@ export function usePanZoom(
   store: SceneStore,
   draftRef: RefObject<SceneElement | null>,
   editorStore: EditorStore,
+  /** Whether the selected element shows its resize handles (select tool only). */
+  showHandles: boolean,
 ) {
   const viewportRef = useRef<Viewport>({ offsetX: 0, offsetY: 0, scale: 1 })
   const frameRef = useRef<number | null>(null)
@@ -59,6 +61,7 @@ export function usePanZoom(
   // Selected id in a ref for the same reason — the render loop reads it without
   // re-subscribing. Selection is editor state, kept separate from the scene.
   const selectedIdRef = useRef<string | null>(null)
+  const showHandlesRef = useRef(showHandles)
 
   const render = useCallback(() => {
     frameRef.current = null
@@ -81,7 +84,12 @@ export function usePanZoom(
     if (selectedId) {
       const selected = sceneRef.current.find((el) => el.id === selectedId)
       if (selected) {
-        drawSelectionBox(ctx, getBoundingBox(selected), viewportRef.current)
+        drawSelectionBox(
+          ctx,
+          getBoundingBox(selected),
+          viewportRef.current,
+          showHandlesRef.current && canResize(selected),
+        )
       }
     }
     // Draw the in-progress draft (if any) on top of the committed scene.
@@ -115,6 +123,12 @@ export function usePanZoom(
     sync()
     return editorStore.subscribe(sync)
   }, [editorStore, scheduleRender])
+
+  // Repaint when the handles are turned on or off (the tool changed).
+  useEffect(() => {
+    showHandlesRef.current = showHandles
+    scheduleRender()
+  }, [showHandles, scheduleRender])
 
   useEffect(() => {
     const canvas = canvasRef.current
