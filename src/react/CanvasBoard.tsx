@@ -5,6 +5,7 @@ import { createWriteFaults } from "@core/persistence";
 import { usePanZoom } from "./usePanZoom";
 import { useDrawTool, type Tool } from "./useDrawTool";
 import { useSelectTool } from "./useSelectTool";
+import { useDeleteKey } from "./useDeleteKey";
 import { usePersistence } from "./usePersistence";
 import { useDiagnostics } from "./useDiagnostics";
 import { Toolbar } from "./Toolbar";
@@ -24,7 +25,7 @@ export interface CanvasBoardProps {
 
 /**
  * CanvasBoard — owns the <canvas> DOM node and its HiDPI sizing, and wires the
- * pan/zoom, draw and select tools, and toolbar together. Scene state lives in the core
+ * pan/zoom, draw and select tools, delete key, and toolbar together. Scene state lives in the core
  * SceneStore; this component only subscribes and wires DOM/pointer events.
  * Mounted by DocumentLoader only once the persisted document has arrived.
  */
@@ -66,6 +67,7 @@ export function CanvasBoard({ db, initialScene, notices }: CanvasBoardProps) {
     editorStore,
     active: tool === "select",
   });
+  useDeleteKey({ canvasRef, store, editorStore });
   // Lets the diagnostics fail writes on purpose. Dev-only, so production writes
   // go straight to storage and the switch is tree-shaken out.
   const [writeFaults] = useState(() =>
