@@ -2,18 +2,25 @@ import { screenToWorld, type Viewport } from '@core/canvas'
 import type { Point } from '@core/scene'
 
 /**
- * Pointer event → world point. Shared by every tool: the canvas reports client
- * coordinates, which must be made canvas-relative before the viewport can map
- * them into world space.
+ * Pointer event → canvas-relative screen point, in CSS px. The canvas reports
+ * client coordinates, which are relative to the page, not the canvas.
+ */
+export function pointerToScreen(
+  canvas: HTMLCanvasElement,
+  e: PointerEvent,
+): Point {
+  const rect = canvas.getBoundingClientRect()
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top }
+}
+
+/**
+ * Pointer event → world point. Shared by every tool: the canvas-relative
+ * screen point is mapped into world space through the viewport.
  */
 export function pointerToWorld(
   canvas: HTMLCanvasElement,
   e: PointerEvent,
   viewport: Viewport,
 ): Point {
-  const rect = canvas.getBoundingClientRect()
-  return screenToWorld(
-    { x: e.clientX - rect.left, y: e.clientY - rect.top },
-    viewport,
-  )
+  return screenToWorld(pointerToScreen(canvas, e), viewport)
 }
