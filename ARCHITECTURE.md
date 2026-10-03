@@ -55,7 +55,7 @@ Each frame (`render`):
 2. `clearRect`
 3. `drawReferenceGrid(...)` — world-space grid (`src/core/canvas/grid.ts`), a visual aid.
 4. `renderScene(ctx, scene, viewport)` — the committed elements (`src/core/canvas/render.ts`).
-5. the **selection highlight**, if an element is selected — a dashed box around its bounding box (`drawSelectionBox`), editor chrome drawn over the scene.
+5. the **selection highlight**, if an element is selected — a dashed box around its bounding box (`drawSelectionBox`), editor chrome drawn over the scene. In the select tool it also carries the resize handles (see *Resizing*).
 6. the in-progress **draft** element, if any, painted on top.
 
 `scheduleRender()` coalesces calls: if a frame is already pending, it no-ops.
@@ -84,6 +84,9 @@ Drawing uses **pointer** events (`src/react/useDrawTool.ts`), so it never collid
 - `replaceElement(next)` swaps the element with `next.id` for `next`, keeping
   its **array index** — a move must never change z-order. An unknown id is a
   no-op that returns the *same* array, so the snapshot stays stable.
+- `removeElement(id)` takes the element out, keeping the rest in order. It
+  follows `replaceElement`'s contract: an unknown id keeps the same array and
+  notifies no one.
 - `subscribe(fn)` registers a listener, returns an unsubscribe.
 
 Nothing binds the store through `useSyncExternalStore`: `usePanZoom` subscribes directly and copies each snapshot into a ref, repainting through rAF, so committing a shape never re-renders `CanvasBoard` or the toolbar. The stability contract documented in `store.ts` is what *would* make `useSyncExternalStore` safe if a component ever needs to read the scene during render. Immutable updates + stable snapshots are what make change-detection cheap and keep the door open for undo later.
@@ -106,7 +109,8 @@ creation only. Both convert pointer events through the shared
 Press → select the topmost hit element (empty press clears) → drag it to move.
 It is **one gesture**: pressing an element you had not selected selects it and
 arms a drag in the same motion. Cursors are `move` on hover, `grabbing` once a
-drag arms, `default` otherwise; hover hit-testing is skipped while dragging.
+drag arms, a resize cursor over a handle (see *Resizing*), `default`
+otherwise; hover hit-testing is skipped while dragging.
 
 Two rules make the drag behave:
 
@@ -133,11 +137,105 @@ returns a new element offset by `delta`. It needs no per-type `switch` — every
 element carries `x`/`y` on `BaseElement`, and freehand `points` are relative to
 that origin, so moving the origin moves the whole stroke.
 
+## Resizing
+
+In the select tool, the selected element shows eight **handles** on its dashed
+selection box: four corners, then the four edge midpoints. Dragging one resizes
+the element, and the opposite corner or edge, the **anchor**, stays fixed in
+the world. The vocabulary (handle, anchor, fit) is in `CONTEXT.md`, and the
+decisions are in `.claude/plans/m12-resize-delete.md`.
+
+`getHandles(bounds, viewport)` in `src/core/canvas/selection.ts` is the one
+list of handle positions, in screen px. `drawSelectionBox` paints that list
+and `getHandleAt` hit-tests a screen point against it, so drawing and
+hit-testing can't disagree. Three rules shape it:
+
+- **Screen-px handles.** A handle is drawn 8px square and grabbed within 12px,
+  centred on the dashed box (which sits 4px outside the shape). Screen px for
+  the same reason as `HIT_SLOP_PX`.
+- **Corners win overlaps.** On a small box the edge midpoints land on the
+  corners. Corners come first in the list, so `getHandleAt` returns a corner,
+  and the list is painted in reverse so the corner is also the square on top.
+  A corner can always do what an edge can.
+- **Handles only in the select tool.** In a draw tool, a press near a handle
+  would be ambiguous with starting a shape. `CanvasBoard` passes
+  `showHandles` (`tool === "select"`) into `usePanZoom`, which keeps it in a
+  ref like the selected id. The selection box itself still shows in every
+  tool, for example straight after auto-select. The tool stays React state
+  (`CONTEXT.md`, "Tool").
+
+The gesture lives in `useSelectTool`, beside move. On `pointerdown` the
+selected element's handles are tested **before** any element (through
+`pointerToScreen`), so a visible handle always answers, even under another
+element or outside the shape. From there it follows move's rules exactly: the
+3px arming threshold, every frame recomputed from the element and press point
+captured on `pointerdown`, a live commit through `replaceElement`, and
+`pointercancel` leaving the element where it is (ADR-0002, unchanged). Each
+frame:
+
+1. `getResizeTarget` moves the edges the handle grabs by the pointer's world
+   delta. A corner grabs two edges, an edge handle one. The other axis keeps
+   its original size.
+2. Each axis the handle changes is clamped to at least ±`MIN_ELEMENT_SIZE`,
+   keeping its sign, and measured out from the anchor so the anchor never
+   moves. An axis the handle leaves alone is **not** clamped: drawing accepts a
+   50×1 freehand stroke, and an `e` drag must not make it taller.
+3. `fitElement(pressed, target)` builds the new element and `replaceElement`
+   commits it.
+
+Dragging past the anchor makes the target's width or height negative. That is
+the **flip**: the sign carries it into fit, which never has to work it out.
+The grabbed handle's cursor (`nwse-resize`, `nesw-resize`, `ns-resize`,
+`ew-resize`) is set on press and kept for the whole gesture, even after a flip.
+
+The absolute recompute matters even more here than for move. Fitting the
+previous frame's element again would build up drift, and a stroke squashed
+flat once could never be recovered within the gesture.
+
+`src/core/scene/resize.ts` holds the geometry. `fitElement(el, target)` makes
+the element's bounding box equal `target`, whose width and height **may be
+negative, meaning flipped** (`getBoundingBox` never returns a negative size):
+
+- **Rectangle and ellipse** look the same flipped, so fit only re-normalises
+  the target to a non-negative origin and size.
+- **Freehand** is stretched: the origin and every point offset are scaled per
+  axis by `target / box`, so a negative factor mirrors the stroke. A **flat
+  axis** (zero extent: a perfectly straight stroke, which drawing allows) keeps
+  factor 1, because `n / 0` has no meaning; there the stroke only moves.
+- `style` is shared by reference, so stroke width never stretches, for any
+  type.
+
+`MIN_ELEMENT_SIZE` (2) lives in the same file and `useDrawTool` uses it too:
+resize must not be a back door around what drawing refuses. It is in world
+units, because it is a rule about the document, not about pointing precision.
+
+## Deleting
+
+Delete or Backspace (the delete key on a Mac keyboard) deletes the selected
+element **in any tool**, so "draw, oops, delete" works straight after
+auto-select. That is why it is its own small hook, `src/react/useDeleteKey.ts`,
+rather than part of `useSelectTool`, which only runs in the select tool.
+There is no toolbar button: the toolbar holds tools only.
+
+- **Delete = remove + deselect.** The hook calls `store.removeElement(id)`,
+  then `editorStore.select(null)`. The scene store knows nothing about
+  selection.
+- **Ignored mid-press.** While a left-button press on the canvas is in progress
+  (a move, a resize, a shape being drawn), the key does nothing. Otherwise
+  Delete mid-draw would delete the *previous* element, and Delete mid-move
+  would leave the outcome to how `replaceElement` happens to treat an unknown
+  id. The hook keeps its own `pressing` flag, set by the canvas's `pointerdown`
+  and cleared by `pointerup` / `pointercancel` on the window, rather than
+  sharing "is gesturing" state between hooks.
+
+Nothing else is needed: `removeElement` notifies like every other mutation, so
+the render loop repaints and the persister saves the change.
+
 ## Creating elements
 
 `src/core/scene/factory.ts` turns raw input into well-formed elements: assigns an `id` (`crypto.randomUUID()`), applies `DEFAULT_STYLE`, and **normalizes geometry**. `createRectangle` / `createEllipse` convert two drag corners to a non-negative origin + size (`normalizeRect`); `createFreehand` converts a run of absolute world points into an origin + relative offsets (`freehandGeometry`). The types permit signed width/height mid-drag; normalization happens here at creation time.
 
-Draw flow (`useDrawTool`): the toolbar picks a tool (`rectangle` / `ellipse` / `freehand`, plus `select` — see *Selection & editor state*). Rectangle and ellipse are two-corner drags (`pointerdown` start → `pointermove` resize); freehand captures a point per `pointermove`. Either way a *draft* element is kept in a ref and painted on top; `pointerup` finalizes via the factory and commits with `store.addElement`. Tiny drags / too-few points are ignored (no zero-size shapes).
+Draw flow (`useDrawTool`): the toolbar picks a tool (`rectangle` / `ellipse` / `freehand`, plus `select` — see *Selection & editor state*). Rectangle and ellipse are two-corner drags (`pointerdown` start → `pointermove` resize); freehand captures a point per `pointermove`. Either way a *draft* element is kept in a ref and painted on top; `pointerup` finalizes via the factory and commits with `store.addElement`. Tiny drags / too-few points are ignored (no shape under `MIN_ELEMENT_SIZE`, see *Resizing*).
 
 ## Persistence
 
@@ -259,6 +357,7 @@ src/
 │   │   ├── hit-test.ts          hitTest (back-to-front) + per-type point tests
 │   │   ├── bounds.ts            getBoundingBox — world-space bbox per element
 │   │   ├── translate.ts         translateElement — offset an element's origin
+│   │   ├── resize.ts            fitElement — fit into a (maybe flipped) box; MIN_ELEMENT_SIZE
 │   │   └── index.ts             barrel → @core/scene
 │   ├── editor/
 │   │   ├── store.ts             createEditorStore — observable selection state
@@ -276,17 +375,18 @@ src/
 │       ├── viewport.ts          MIN/MAX_SCALE, clampScale, scaleFromWheel
 │       ├── grid.ts              drawReferenceGrid
 │       ├── render.ts            renderScene / drawElement
-│       ├── selection.ts         drawSelectionBox — selection highlight chrome
+│       ├── selection.ts         drawSelectionBox + getHandles / getHandleAt — selection chrome
 │       └── index.ts             barrel → @core/canvas
 └── react/
     ├── DocumentLoader.tsx       Suspense gate on the load; picks the board's notices
     ├── CanvasBoard.tsx          owns <canvas> + sizing; wires store, toolbar, tools, persistence
     ├── usePanZoom.ts            viewport state, wheel input, render loop
     ├── useDrawTool.ts           pointer-drag shape creation
-    ├── useSelectTool.ts         click-to-select + drag-to-move
+    ├── useSelectTool.ts         click-to-select, drag-to-move, drag-a-handle-to-resize
+    ├── useDeleteKey.ts          Delete/Backspace deletes the selection, any tool
     ├── usePersistence.ts        mounts the persister, flushes on hide, returns persist status
     ├── useDiagnostics.ts        dev-only window.canvasDiagnostics handle
-    ├── pointer.ts               pointerToWorld — shared event → world point
+    ├── pointer.ts               pointerToScreen / pointerToWorld — shared event → point
     ├── Notice.tsx               Notice + NoticeStack — pinned messages that cover only their own box
     └── Toolbar.tsx              tool picker (UI chrome)
 ```

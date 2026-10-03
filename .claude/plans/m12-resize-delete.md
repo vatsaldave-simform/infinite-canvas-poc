@@ -163,3 +163,47 @@ Each step ends with **stop and wait**, and gets one commit.
 | 4 | `getHandles` + handle drawing + tests | `selection.test.ts`: 8 positions at 1× and at another zoom/pan; corners first. Handles drawn only when `showHandles`. |
 | 5 | Resize gesture in `useSelectTool` | Handles before elements; anchor from the original box; per-frame clamp → fit → `replaceElement`; cursors. |
 | 6 | Check in the running app (Chrome), then `ARCHITECTURE.md`, roadmap row, close-out notes here | Docs that describe code land after the code. |
+
+---
+
+## Close-out
+
+M12 is done. Every decision above shipped as written. The work went out as
+GitHub issues #8–#13 instead of the six build-order steps: the resize steps
+were cut into vertical slices instead. Corner handles for rectangles and
+ellipses came first (#10), then freehand stretch (#11), then edge handles (#12).
+Each slice ran from the geometry to the gesture, and each was checked in the
+browser.
+
+**What differs from the plan, and why:**
+
+- **`getHandleAt` sits beside `getHandles`.** Decision 20 named only
+  `getHandles`. Hit-testing a screen point against that same list is a second
+  small function in the same file, so drawing and hit-testing still read the
+  one source.
+- **Handles are painted in reverse.** Decision 6 settled who wins a *press*.
+  Painting corners last means the corner is also the square drawn on top where
+  handles overlap, so what you see matches what you grab.
+- **`getHandles` order is `nw, ne, se, sw, n, e, s, w`**, not the compass order
+  decision 20 lists. That is decision 6's "corners first", taken literally.
+- **A temporary `canResize` guard** limited handles to rectangles and ellipses
+  while freehand fit didn't exist yet. It was removed with #11.
+- **The resize-target maths is not unit-tested.** `getResizeTarget` and
+  `clampSize` are private to `useSelectTool`, in the React layer. They were
+  checked in the browser instead, slice by slice. If they
+  ever grow, move them to `core/` and test them there.
+
+**Carried into M13 (undo/redo):**
+
+- **Delete needs the index back.** `removeElement` returns `void`, but putting a
+  deleted element back at the same place in z-order needs the index it was
+  removed from. Adding that is M13's job.
+- **One gesture, one history entry.** A resize, like a move (ADR-0002), is
+  hundreds of `replaceElement` writes. Undo must capture the gesture: the
+  element on `pointerdown` and the element on `pointerup`. It must not capture
+  each mutation.
+- **Delete is already one action**, so it maps to one entry as it is.
+
+**Still open (non-goals, can be picked up any time):** Shift to keep the aspect
+ratio, and Alt to resize from the centre. Both are small now that the anchor
+model works.
