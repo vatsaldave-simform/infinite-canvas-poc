@@ -105,6 +105,8 @@ export function quarantineDocument(
 /**
  * Run requests in one readwrite transaction; resolve when it commits. A failed
  * request aborts the transaction, so `abort` is the one failure path to watch.
+ * Committed explicitly once `run` has queued its requests, because a write
+ * issued during page unload may never reach the implicit end-of-task commit.
  */
 function inReadwrite(
   db: IDBDatabase,
@@ -114,6 +116,7 @@ function inReadwrite(
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(objectStores, "readwrite");
     run(transaction);
+    transaction.commit();
 
     transaction.oncomplete = () => resolve();
     transaction.onabort = () => reject(transaction.error);
