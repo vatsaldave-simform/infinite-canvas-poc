@@ -73,10 +73,15 @@ vocabulary (handle, resize, anchor, fit, delete, remove) is in `CONTEXT.md`.
     units, so resize must not be a back door around that. `MIN_DRAG_SIZE`
     moves out of `useDrawTool` into `core/scene` as `MIN_ELEMENT_SIZE = 2`
     (world units: it's a rule about the document, not about pointing
-    precision). The gesture clamps the target's width and height to at least
-    ±`MIN_ELEMENT_SIZE`, keeping the sign, **before** calling fit. The same
-    rule applies to every type on both axes; for freehand that's stricter than
-    creation but harmless (a flat axis ignores the target anyway).
+    precision). The gesture clamps the target's size to at least
+    ±`MIN_ELEMENT_SIZE`, keeping the sign, **before** calling fit, but only
+    on the axes the handle changes: both for a corner, one for an edge. The
+    axis an edge handle leaves alone keeps its original size, as decision 2
+    says, even when that size is under the minimum. (Drawing keeps a freehand
+    stroke when only *one* axis is under 2, so a 50×1 stroke is valid, and an
+    `e` drag must not stretch its height.) The rule is the same for every
+    type. On a changed axis it is stricter than creation for freehand, which
+    is harmless, since a flat axis ignores the target anyway.
 
 ### Resize — state & data flow
 
