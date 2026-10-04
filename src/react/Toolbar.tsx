@@ -9,6 +9,7 @@ const TOOLS: { id: Tool; label: string; hint: string }[] = [
   { id: 'rectangle', label: 'Rectangle', hint: 'Drag to draw a rectangle' },
   { id: 'ellipse', label: 'Ellipse', hint: 'Drag to draw an ellipse' },
   { id: 'freehand', label: 'Freehand', hint: 'Drag to draw freehand' },
+  { id: 'eraser', label: 'Eraser', hint: 'Drag across shapes to erase them' },
 ]
 
 interface ToolbarProps {

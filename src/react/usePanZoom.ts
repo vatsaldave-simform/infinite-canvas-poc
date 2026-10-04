@@ -12,10 +12,12 @@ import {
 import { getBoundingBox } from '@core/scene'
 import type { Scene, SceneElement, SceneStore } from '@core/scene'
 import type { EditorStore } from '@core/editor'
+import type { ErasePreview } from './useEraserTool'
 
 /**
  * Owns the live Viewport, the wheel-driven pan/zoom input, and the rAF-batched
- * render loop (grid → scene → draft). Viewport + scene live in refs so bursts of
+ * render loop (grid → scene → draft). While the eraser is pressed, its preview
+ * is drawn in place of the scene. Viewport + scene live in refs so bursts of
  * events repaint the canvas without re-rendering React. Excalidraw-style input:
  * plain wheel/scroll pans, Ctrl/Cmd+wheel or pinch zooms at the cursor.
  * See ARCHITECTURE.md ("The render loop").
@@ -26,6 +28,9 @@ import type { EditorStore } from '@core/editor'
 const LINE_HEIGHT_PX = 16
 const PAGE_HEIGHT_PX = 400
 const MAX_ZOOM_DELTA = 20
+
+// How visible the elements an erase is about to remove are, while previewed.
+const ERASED_OPACITY = 0.25
 
 // Placeholder until the store-sync effect seeds sceneRef on mount. Shared and
 // never mutated — scene mutations always produce a new array.
@@ -48,6 +53,7 @@ export function usePanZoom(
   canvasRef: RefObject<HTMLCanvasElement | null>,
   store: SceneStore,
   draftRef: RefObject<SceneElement | null>,
+  previewRef: RefObject<ErasePreview | null>,
   editorStore: EditorStore,
   /** Whether the selected element shows its resize handles (select tool only). */
   showHandles: boolean,
@@ -78,7 +84,17 @@ export function usePanZoom(
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, cssWidth, cssHeight)
     drawReferenceGrid(ctx, viewportRef.current, cssWidth, cssHeight)
-    renderScene(ctx, sceneRef.current, viewportRef.current)
+    const preview = previewRef.current
+    if (preview) {
+      // What the erase will remove, faded, beneath what it will leave.
+      ctx.save()
+      ctx.globalAlpha = ERASED_OPACITY
+      renderScene(ctx, preview.erased, viewportRef.current)
+      ctx.restore()
+      renderScene(ctx, preview.scene, viewportRef.current)
+    } else {
+      renderScene(ctx, sceneRef.current, viewportRef.current)
+    }
     // Selection highlight: chrome over the committed scene, under the draft.
     const selectedId = selectedIdRef.current
     if (selectedId) {
@@ -95,7 +111,7 @@ export function usePanZoom(
     // Draw the in-progress draft (if any) on top of the committed scene.
     const draft = draftRef.current
     if (draft) drawElement(ctx, draft, viewportRef.current)
-  }, [canvasRef, draftRef])
+  }, [canvasRef, draftRef, previewRef])
 
   const scheduleRender = useCallback(() => {
     if (frameRef.current != null) return

@@ -27,6 +27,7 @@ export {
   distanceToSegment,
 } from './hit-test'
 export { getBoundingBox, type Bounds } from './bounds'
+export { getTouchedElements } from './erase'
 export { translateElement } from './translate'
 export {
   MIN_ELEMENT_SIZE,

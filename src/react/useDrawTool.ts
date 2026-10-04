@@ -16,8 +16,11 @@ import type { EditorStore } from '@core/editor'
 import type { History } from '@core/history'
 import { pointerToWorld } from './pointer'
 
-/** Active canvas tool. Selecting and moving live in useSelectTool. */
-export type Tool = 'select' | 'rectangle' | 'ellipse' | 'freehand'
+/**
+ * Active canvas tool. Selecting and moving live in useSelectTool, erasing in
+ * useEraserTool.
+ */
+export type Tool = 'select' | 'rectangle' | 'ellipse' | 'freehand' | 'eraser'
 
 /** Placeholder id for the in-progress draft — never committed to the scene. */
 const DRAFT_ID = 'draft'
@@ -67,7 +70,8 @@ export function useDrawTool({
     const canvas = canvasRef.current
     if (!canvas) return
 
-    if (tool === 'select') return // useSelectTool owns the select gesture
+    // useSelectTool and useEraserTool own those tools' gestures.
+    if (tool === 'select' || tool === 'eraser') return
 
     // Pointer position → world point, using the current viewport.
     const toWorld = (e: PointerEvent): Point =>

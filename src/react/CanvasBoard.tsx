@@ -6,6 +6,7 @@ import { createWriteFaults } from "@core/persistence";
 import { usePanZoom } from "./usePanZoom";
 import { useDrawTool, type Tool } from "./useDrawTool";
 import { useSelectTool } from "./useSelectTool";
+import { useEraserTool, type ErasePreview } from "./useEraserTool";
 import { useEditorKeys } from "./useEditorKeys";
 import { useCanvasPress } from "./useCanvasPress";
 import { useTimelineOpen } from "./useTimelineOpen";
@@ -30,7 +31,7 @@ export interface CanvasBoardProps {
 
 /**
  * CanvasBoard — owns the <canvas> DOM node and its HiDPI sizing, and wires the
- * pan/zoom, draw and select tools, editor keys, toolbar and timeline together.
+ * pan/zoom, draw, select and eraser tools, editor keys, toolbar and timeline together.
  * Scene state lives in the core SceneStore; this component only subscribes and
  * wires DOM/pointer events.
  * Mounted by DocumentLoader only once the persisted document has arrived.
@@ -53,11 +54,14 @@ export function CanvasBoard({ db, initialScene, notices }: CanvasBoardProps) {
   const [tool, setTool] = useState<Tool>("rectangle");
   // In-progress shape, shared with the render loop so it paints on top.
   const draftRef = useRef<SceneElement | null>(null);
+  // The eraser's preview, drawn by the render loop in place of the scene.
+  const previewRef = useRef<ErasePreview | null>(null);
 
   const { viewportRef, scheduleRender } = usePanZoom(
     canvasRef,
     store,
     draftRef,
+    previewRef,
     editorStore,
     tool === "select",
   );
@@ -79,6 +83,16 @@ export function CanvasBoard({ db, initialScene, notices }: CanvasBoardProps) {
     editorStore,
     history,
     active: tool === "select",
+  });
+  useEraserTool({
+    canvasRef,
+    viewportRef,
+    scheduleRender,
+    store,
+    editorStore,
+    history,
+    previewRef,
+    active: tool === "eraser",
   });
   // The editor keys and the timeline both hold off while the canvas is pressed.
   const canvasPressRef = useCanvasPress(canvasRef);

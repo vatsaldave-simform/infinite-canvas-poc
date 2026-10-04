@@ -131,6 +131,98 @@ describe("createHistory", () => {
     });
   });
 
+  describe("a compound entry", () => {
+    // Remove "b" and "d" one at a time, as an erase does, recording where
+    // each one stood when it was taken out.
+    const eraseTwo = () => {
+      const store = createSceneStore([
+        aRectangle("a"),
+        aRectangle("b"),
+        aRectangle("c"),
+        aRectangle("d"),
+        aRectangle("e"),
+      ]);
+      const history = createHistory(store);
+      const indexOfB = store.removeElement("b");
+      const indexOfD = store.removeElement("d");
+      const entry = {
+        kind: "compound" as const,
+        operations: [
+          { kind: "remove" as const, element: aRectangle("b"), index: indexOfB },
+          { kind: "remove" as const, element: aRectangle("d"), index: indexOfD },
+        ],
+      };
+      history.record(entry);
+      return { store, history, entry };
+    };
+
+    it("undo puts every removed element back at its old depth", () => {
+      const { store, history } = eraseTwo();
+
+      history.undo();
+
+      expect(store.getScene()).toEqual([
+        aRectangle("a"),
+        aRectangle("b"),
+        aRectangle("c"),
+        aRectangle("d"),
+        aRectangle("e"),
+      ]);
+    });
+
+    it("redo removes them all again", () => {
+      const { store, history } = eraseTwo();
+      history.undo();
+
+      history.redo();
+
+      expect(store.getScene()).toEqual([aRectangle("a"), aRectangle("c"), aRectangle("e")]);
+    });
+
+    it("undo reverts its operations in reverse order", () => {
+      // Draw "a", then move it. Reverting the move first is the only way back
+      // to an empty scene; removing "a" first would leave the move nothing to
+      // revert.
+      const store = createSceneStore();
+      const history = createHistory(store);
+      store.addElement(aRectangle("a", 50));
+      history.record({
+        kind: "compound",
+        operations: [
+          { kind: "add", element: aRectangle("a", 0), index: 0 },
+          { kind: "replace", before: aRectangle("a", 0), after: aRectangle("a", 50) },
+        ],
+      });
+
+      history.undo();
+      expect(store.getScene()).toEqual([]);
+
+      history.redo();
+      expect(store.getScene()).toEqual([aRectangle("a", 50)]);
+    });
+
+    it("moves the present and the count by one", () => {
+      const { history } = eraseTwo();
+
+      expect(history.getPresent()).toBe(1);
+      expect(history.getCount()).toBe(1);
+
+      history.undo();
+      expect(history.getPresent()).toBe(0);
+      expect(history.getCount()).toBe(1);
+
+      history.redo();
+      expect(history.getPresent()).toBe(1);
+    });
+
+    it("undo and redo return the entry they applied", () => {
+      const { history, entry } = eraseTwo();
+
+      expect(history.undo()).toBe(entry);
+      expect(history.redo()).toBe(entry);
+    });
+  });
+
   it("undoes a draw and a move of it in reverse order, then redoes them", () => {
     // Draw "a" at x = 0, then move it to x = 50.
     const store = createSceneStore([aRectangle("a", 50)]);

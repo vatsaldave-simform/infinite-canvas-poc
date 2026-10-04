@@ -1,21 +1,21 @@
 /**
  * Undo/redo history: a linear stack of history entries, each a plain-data
- * record of one scene operation. Undo applies an entry's inverse through the
- * scene store and redo applies it again, so the store stays the source of
- * truth. Entries are recorded by whoever owns the action, when it finishes.
+ * record of one scene operation, or of several made as one change. Undo
+ * applies an entry's inverse through the scene store and redo applies it
+ * again, so the store stays the source of truth. Entries are recorded by whoever owns the action, when it finishes.
  * See docs/adr/0005-history-records-scene-operations.md.
  */
 
 import type { SceneElement, SceneStore } from "@core/scene";
 
 /**
- * One change to the scene:
+ * One scene operation:
  * - `add` put a new element into the scene at `index`, as drawing does.
  * - `replace` swapped an element for a new version of itself, as a move or a
  *   resize does.
  * - `remove` took an element out of the scene from `index`, as deleting does.
  */
-export type HistoryEntry =
+export type SceneOperation =
   | {
       kind: "add";
       element: SceneElement;
@@ -31,6 +31,25 @@ export type HistoryEntry =
       element: SceneElement;
       index: number;
     };
+
+/**
+ * One change to the scene: a single scene operation, or a `compound` of
+ * several made by one editor action, as an erase does. A compound's
+ * operations are in the order they were made, and it is undone and redone as
+ * one change.
+ */
+export type HistoryEntry =
+  | SceneOperation
+  | {
+      kind: "compound";
+      operations: SceneOperation[];
+    };
+
+/** The scene operations an entry is made of, in the order they were made. */
+export function getOperations(entry: HistoryEntry): SceneOperation[] {
+  if (entry.kind === "compound") return entry.operations;
+  return [entry];
+}
 
 export interface History {
   /** Add a finished change. Anything that could have been redone is dropped. */
@@ -84,35 +103,51 @@ export function createHistory(store: SceneStore): History {
     listeners.forEach((listener) => listener());
   };
 
-  // Put the scene back as it was before the entry's change.
-  const revert = (entry: HistoryEntry) => {
-    switch (entry.kind) {
+  // Put the scene back as it was before the operation.
+  const revertOperation = (operation: SceneOperation) => {
+    switch (operation.kind) {
       case "add":
-        store.removeElement(entry.element.id);
+        store.removeElement(operation.element.id);
         break;
       case "replace":
-        store.replaceElement(entry.before);
+        store.replaceElement(operation.before);
         break;
       case "remove":
         // Back at its old depth, not on top.
-        store.insertElement(entry.element, entry.index);
+        store.insertElement(operation.element, operation.index);
         break;
     }
   };
 
-  // Make the entry's change again.
-  const apply = (entry: HistoryEntry) => {
-    switch (entry.kind) {
+  // Make the operation again.
+  const applyOperation = (operation: SceneOperation) => {
+    switch (operation.kind) {
       case "add":
         // Insert, not add: the element goes back at the depth it was drawn at.
-        store.insertElement(entry.element, entry.index);
+        store.insertElement(operation.element, operation.index);
         break;
       case "replace":
-        store.replaceElement(entry.after);
+        store.replaceElement(operation.after);
         break;
       case "remove":
-        store.removeElement(entry.element.id);
+        store.removeElement(operation.element.id);
         break;
+    }
+  };
+
+  // Put the scene back as it was before the entry's change. Operations are
+  // reverted last first, so each one finds the scene as it left it.
+  const revert = (entry: HistoryEntry) => {
+    const operations = getOperations(entry);
+    for (let i = operations.length - 1; i >= 0; i--) {
+      revertOperation(operations[i]);
+    }
+  };
+
+  // Make the entry's change again, its operations in the order they were made.
+  const apply = (entry: HistoryEntry) => {
+    for (const operation of getOperations(entry)) {
+      applyOperation(operation);
     }
   };
 
