@@ -35,6 +35,8 @@ function getEntryElementId(entry: HistoryEntry): string {
       return entry.element.id;
     case "replace":
       return entry.after.id;
+    case "remove":
+      return entry.element.id;
   }
 }
 
@@ -73,7 +75,14 @@ export function useEditorKeys({
       const selectedId = editorStore.getSelectedId();
       if (selectedId === null) return;
 
-      store.removeElement(selectedId);
+      const element = store
+        .getScene()
+        .find((sceneElement) => sceneElement.id === selectedId);
+      if (element) {
+        // Record where it was, so undo can put it back at the same depth.
+        const index = store.removeElement(selectedId);
+        history.record({ kind: "remove", element, index });
+      }
       editorStore.select(null);
     };
 

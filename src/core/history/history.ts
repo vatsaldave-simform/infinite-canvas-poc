@@ -13,6 +13,7 @@ import type { SceneElement, SceneStore } from "@core/scene";
  * - `add` put a new element into the scene at `index`, as drawing does.
  * - `replace` swapped an element for a new version of itself, as a move or a
  *   resize does.
+ * - `remove` took an element out of the scene from `index`, as deleting does.
  */
 export type HistoryEntry =
   | {
@@ -24,6 +25,11 @@ export type HistoryEntry =
       kind: "replace";
       before: SceneElement;
       after: SceneElement;
+    }
+  | {
+      kind: "remove";
+      element: SceneElement;
+      index: number;
     };
 
 export interface History {
@@ -60,6 +66,10 @@ export function createHistory(store: SceneStore): History {
       case "replace":
         store.replaceElement(entry.before);
         break;
+      case "remove":
+        // Back at its old depth, not on top.
+        store.insertElement(entry.element, entry.index);
+        break;
     }
   };
 
@@ -72,6 +82,9 @@ export function createHistory(store: SceneStore): History {
         break;
       case "replace":
         store.replaceElement(entry.after);
+        break;
+      case "remove":
+        store.removeElement(entry.element.id);
         break;
     }
   };

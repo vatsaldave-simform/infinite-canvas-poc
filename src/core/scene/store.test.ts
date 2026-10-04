@@ -202,6 +202,18 @@ describe("createSceneStore", () => {
       expect(listener).toHaveBeenCalledTimes(1);
     });
 
+    it("returns the index it removed the element from", () => {
+      const store = createSceneStore(threeElements());
+
+      expect(store.removeElement("middle")).toBe(1);
+    });
+
+    it("returns -1 when the id is unknown", () => {
+      const store = createSceneStore(threeElements());
+
+      expect(store.removeElement("does-not-exist")).toBe(-1);
+    });
+
     it("keeps the same array reference when the id is unknown", () => {
       const store = createSceneStore(threeElements());
       const before = store.getScene();
