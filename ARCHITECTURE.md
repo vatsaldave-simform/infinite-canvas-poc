@@ -54,7 +54,7 @@ Each frame (`render`):
 1. `ctx.setTransform(dpr, …)` — the one place DPR is applied.
 2. `clearRect`
 3. `drawReferenceGrid(...)` — world-space grid (`src/core/canvas/grid.ts`), a visual aid.
-4. `renderScene(ctx, scene, viewport)` — the committed elements (`src/core/canvas/render.ts`).
+4. `renderScene(ctx, scene, viewport)` — the committed elements (`src/core/canvas/render.ts`). While the eraser is pressed, its **preview** is drawn here instead of the store's scene: what the erase touched at 25% opacity, then what it will leave on top (see *Erasing*).
 5. the **selection highlight**, if an element is selected — a dashed box around its bounding box (`drawSelectionBox`), editor chrome drawn over the scene. In the select tool it also carries the resize handles (see *Resizing*).
 6. the in-progress **draft** element, if any, painted on top.
 
@@ -67,7 +67,7 @@ A non-passive `wheel` listener (so `preventDefault` works) routes gestures Excal
 - plain wheel / two-finger scroll → **pan** (adjust `offset`)
 - Ctrl/Cmd + wheel, trackpad pinch → **zoom at cursor** (`clampScale(scaleFromWheel(...))` → `zoomAtPoint`)
 
-Drawing uses **pointer** events (`src/react/useDrawTool.ts`), so it never collides with wheel-based navigation.
+Drawing and erasing use **pointer** events (`src/react/useDrawTool.ts`, `src/react/useEraserTool.ts`), so they never collide with wheel-based navigation.
 
 ## Scene model & state
 
@@ -212,8 +212,9 @@ negative, meaning flipped** (`getBoundingBox` never returns a negative size):
 - `style` is shared by reference, so stroke width never stretches, for any
   type.
 
-`MIN_ELEMENT_SIZE` (2) lives in the same file and `useDrawTool` uses it too:
-resize must not be a back door around what drawing refuses. It is in world
+`MIN_ELEMENT_SIZE` (2) lives in the same file, and drawing and erasing use it
+too, through `isTooSmallStroke` and `useDrawTool`'s own check: neither resize
+nor the eraser may be a back door around what drawing refuses. It is in world
 units, because it is a rule about the document, not about pointing precision.
 
 ## Deleting
@@ -241,19 +242,109 @@ only runs in the select tool. There is no toolbar button: the toolbar holds tool
 `removeElement` notifies like every other mutation, so the render loop
 repaints and the persister saves the change.
 
+## Erasing
+
+The eraser is a toolbar button, with no keyboard shortcut. Dragging it erases
+whatever its path passes over, **at every depth**, not just the topmost
+element: a freehand stroke is **split** where the path crosses it, and a
+rectangle or ellipse is removed whole. The vocabulary (erase, split, piece,
+compound) is in `CONTEXT.md`, and the decisions are in
+`.claude/plans/m15-splitting-eraser.md`.
+
+`src/react/useEraserTool.ts` owns the gesture; `useDrawTool` skips the eraser
+as it skips select. Switching to the eraser clears the selection, and the tool
+stays on the eraser after each gesture, since erasing takes several passes.
+While it is the tool, the cursor is a circle the size of the eraser.
+
+**The path and the radius.** The eraser's path is the polyline through its
+pointer samples, in world space, and it erases one stretch at a time:
+`pointerdown` a single point, then each `pointermove` the segment from the last
+sample to this one, then `pointerup` the last segment. So a fast drag that
+jumps over a line between two samples still erases it. The radius is
+`ERASER_RADIUS_PX` (8) **screen** px divided by the scale at that stretch, like
+slop, so wheel pan and zoom keep working mid-gesture and the eraser is the
+same size on screen at every zoom. One pointer erases at a time, with pointer
+capture.
+
+The geometry is in `src/core/scene/erase.ts`, pure and tested in node:
+
+- **Rectangles and ellipses: outline only.** Fills are transparent, so a path
+  through a shape's empty inside does nothing; you erase what you can see.
+  That is why `hitTest`, which counts the inside, is not reused.
+  `pathTouchesOutline` turns the outline into a closed polygon (four corners,
+  or 64 points round an ellipse) and checks the distance from each path
+  segment to each side against the radius. Two segments that **cross** are at
+  distance 0. Otherwise the closest point is at one of the four ends, so it
+  falls back to `distanceToSegment` from the hit test. The crossing check is
+  what catches a long path segment cutting a side between two far-apart
+  samples.
+- **Freehand strokes: resample, then drop.** `splitStroke` first checks the
+  path's box against the stroke's, so a stroke nowhere near is skipped
+  cheaply. It then subdivides the stroke so no segment is longer than half
+  the radius, and drops every point within the radius **plus half the stroke
+  width** of the path, so touching a stroke's visible edge counts. Without the
+  subdivision, a path crossing the middle of one long segment would find no
+  point near it to drop. Each run of points left is a **piece**, made with
+  `createFreehand`: a new element with a new id and the stroke's style. A run
+  `isTooSmallStroke` refuses, the same test the freehand tool commits by, is
+  dropped. `splitStroke` returns `null` when the path did not reach the
+  stroke, and an empty array when it crossed it end to end.
+
+**The erasure is gesture state, like a draft.** An `Erasure` holds the ids of
+the shapes to remove and, per cut stroke, the pieces left of it so far. It is
+not part of the scene, so it is changed in place. `eraseAlong(scene, erasure,
+path, radius)` erases one stretch against the scene as it was when the gesture
+began (the store is untouched until release). A stroke already cut has only its
+pieces cut further, so earlier stretches are never worked out again. It
+returns whether anything new was erased, and the hook repaints only then. The
+pieces the preview shows are the elements that get committed, ids and all.
+
+**The preview.** `getErasePreview(scene, erasure)` gives an `ErasePreview`:
+`scene`, what the erase will leave, with each cut stroke's pieces in its
+place; and `erased`, every element it touched. The hook puts it in a ref that
+`CanvasBoard` shares with the render loop, which draws `erased` at 25% opacity
+and `scene` on top. A cut stroke is in both, so the faded part showing between
+its pieces is exactly the part being erased. This is a whole preview scene,
+not a preview of elements already in the scene, so `renderScene` needs no
+"exclude this id" parameter (ADR-0002's amendment).
+
+**Commit on release.** `pointerup` erases the last stretch, then calls
+`applyErase(store, erasure)` from `src/core/history/erase.ts`, which makes the
+erase in the store and returns it as one **compound** history entry. It walks
+the store's scene in order. A removed shape is a `remove`. A cut stroke is a
+`remove`, then an `add` for each piece, at the stroke's index and after, so the
+pieces stand where it stood, next to each other in stroke order. Each
+operation's index is where things are at that moment, which is what lets undo
+revert them last first (see *History*). An erasure that erased nothing gives
+`null`, touches nothing and records nothing. The hook records the entry, and
+clears the selection if the selected element was erased: switching to the
+eraser cleared it, but an undo or a scrub while on the eraser can select
+something again.
+
+**Cancelling erases nothing.** `pointercancel`, Escape while pressed, or
+leaving the tool mid-gesture throws the erasure and the preview away. Nothing
+was committed, so there is nothing to put back and nothing to record. This is
+unlike a cancelled move, which ADR-0002 leaves where it landed. Escape's
+listener is in `useEraserTool` and does nothing unless the eraser is pressed.
+
+A press with the eraser is a canvas press like any other, so the editor keys
+and the timeline hold off while it lasts (`useCanvasPress`), and it pauses a
+replay (see *Timeline*).
+
 ## Creating elements
 
 `src/core/scene/factory.ts` turns raw input into well-formed elements: assigns an `id` (`crypto.randomUUID()`), applies `DEFAULT_STYLE`, and **normalizes geometry**. `createRectangle` / `createEllipse` convert two drag corners to a non-negative origin + size (`normalizeRect`); `createFreehand` converts a run of absolute world points into an origin + relative offsets (`freehandGeometry`). The types permit signed width/height mid-drag; normalization happens here at creation time.
 
-Draw flow (`useDrawTool`): the toolbar picks a tool (`rectangle` / `ellipse` / `freehand`, plus `select` — see *Selection & editor state*). Rectangle and ellipse are two-corner drags (`pointerdown` start → `pointermove` resize); freehand captures a point per `pointermove`. Either way a *draft* element is kept in a ref and painted on top; `pointerup` finalizes via the factory, commits with `store.addElement` and records an `add` entry (see *History*). Tiny drags / too-few points are ignored (no shape under `MIN_ELEMENT_SIZE`, see *Resizing*), so they commit and record nothing.
+Draw flow (`useDrawTool`): the toolbar picks a tool (`rectangle` / `ellipse` / `freehand`, plus `select` and `eraser`, which have hooks of their own — see *Selecting & moving* and *Erasing*). Rectangle and ellipse are two-corner drags (`pointerdown` start → `pointermove` resize); freehand captures a point per `pointermove`. Either way a *draft* element is kept in a ref and painted on top; `pointerup` finalizes via the factory, commits with `store.addElement` and records an `add` entry (see *History*). Tiny drags / too-few points are ignored (no shape under `MIN_ELEMENT_SIZE`, see *Resizing*; for a stroke, `isTooSmallStroke` in `factory.ts`, which the eraser shares), so they commit and record nothing.
 
 ## History
 
 Ctrl/Cmd+Z undoes the last change to the document; Ctrl/Cmd+Shift+Z or Ctrl+Y
 redoes it. A change is one whole editor action: a drawn element, a move, a
-resize or a delete, however many store writes it took. The vocabulary
-(history, undo, redo, history entry) is in `CONTEXT.md`, the decisions are in
-`.claude/plans/m13-undo-redo.md`, and the design choice is ADR-0005
+resize, a delete or an erase, however many store writes it took. The
+vocabulary (history, undo, redo, history entry, compound) is in `CONTEXT.md`,
+the decisions are in `.claude/plans/m13-undo-redo.md` (and, for the compound,
+`.claude/plans/m15-splitting-eraser.md`), and the design choice is ADR-0005
 (`docs/adr/0005-history-records-scene-operations.md`).
 
 **The store stays the source of truth.** History is a log *about* the scene,
@@ -277,13 +368,24 @@ interprets it with a `switch` on `kind`:
 | `add` | element, index | `removeElement(id)` | `insertElement(element, index)` |
 | `replace` | before, after | `replaceElement(before)` | `replaceElement(after)` |
 | `remove` | element, index | `insertElement(element, index)` | `removeElement(id)` |
+| `compound` | operations, in order | revert each, last first | apply each, in order |
 
 The inverses pair up: add and remove are mirror images, and replace swaps
 before and after. A move and a resize are both a `replace`. Redoing an `add`
-inserts rather than appends, so it keeps that mirror. Entries hold elements
-by reference. That is safe because a committed element is never mutated in
-place (the frozen rule in `CONTEXT.md`), so the element an entry holds is
-exactly the one that was in the scene.
+inserts rather than appends, so it keeps that mirror.
+
+A **compound** is for one editor action that changes several elements, as an
+erase does: an ordered list of the three operations, recorded and undone as
+one change, one mark on the timeline. It adds no fourth operation and knows
+nothing about the gesture, so there is no `split` kind (ADR-0005's amendment).
+Each operation's index is where things stood when it was made, so reverting
+them last first finds the scene as each one left it. `getOperations(entry)`
+gives any entry as a list of operations, one for a single operation, so undo
+and redo have one loop for both.
+
+Entries hold elements by reference. That is safe because a committed element
+is never mutated in place (the frozen rule in `CONTEXT.md`), so the element an
+entry holds is exactly the one that was in the scene.
 
 **Whoever owns an action records it, when it finishes.** Nothing subscribes
 to the store and diffs scenes. The store cannot know where a gesture ends
@@ -299,10 +401,13 @@ would hear its own undos as new changes.
   cancelled or too-small draw commits nothing and records nothing.
 - `useEditorKeys` records one `remove` on delete, with the index
   `removeElement` returned.
+- `useEraserTool` records the compound `applyErase` returns, on release. A
+  cancelled erase, or one that touched nothing, records nothing.
 
 Every future document change must record an entry too, or undo will skip it.
 A test in `history.test.ts` backs the pattern up: a run of draws, moves, a
-resize and deletes, undone completely, must give back the starting scene, and
+resize, deletes and an erase, undone completely, must give back the starting
+scene, and
 redone completely, the final one. It drives the store and history through
 small helpers that record the way each owner does, not through the React
 hooks, which have no tests. So it catches a wrong inverse or a helper that
@@ -319,14 +424,20 @@ means something there.
 - **Handled keys call `preventDefault`,** so the browser's own Ctrl+Z / Ctrl+Y
   does not run as well. A key ignored mid-press is not handled, so it does not
   call it. Held keys repeat, and each repeat applies one more entry.
-- **Selection follows the entry.** After an undo or redo, the element the
-  entry changed is selected if it is in the scene now, otherwise the selection
-  is cleared, so it never points at a missing id. Undoing a move or a delete
-  selects that element; undoing a draw, or redoing a delete, clears the
-  selection. With nothing to apply, the selection is left alone. The rule is
+- **Selection follows the entry.** After an undo or redo, if exactly one of
+  the elements the entry touched is in the scene now, it is selected;
+  otherwise the selection is cleared, so it never points at a missing id and
+  never has to pick between several. For a single operation that is the one
+  element it changed: undoing a move or a delete selects that element, and
+  undoing a draw, or redoing a delete, clears the selection. For an erase:
+  undoing one that removed a single shape, or cut a single stroke, selects it
+  back; undoing one that touched several clears the selection, and so does
+  redoing one that left more than one piece. With nothing to apply, the
+  selection is left alone. The rule is `getEntrySelection(entry, scene)` in
+  `src/core/history/selection.ts`, pure and tested in node. It returns an id
+  or `null`, because history never sees the editor store. Applying it is
   `selectEntryElement` in `src/react/historySelection.ts`, which the keys, a
-  scrub and a replay all share. It lives in the React layer because history
-  never sees the editor store.
+  scrub and a replay all share.
 
 **What history leaves out.** Selection, the tool and the viewport are editor
 state and are not undoable. History is never persisted, so a reload starts
@@ -412,7 +523,8 @@ owner records its own entry:
 
 - `useReplay` pauses on a left-button `pointerdown` on the canvas, in any
   tool. This holds because no tool changes the document on `pointerdown`:
-  drawing commits on release, and moves and resizes write on `pointermove`.
+  drawing and erasing commit on release, and moves and resizes write on
+  `pointermove`.
 - `useEditorKeys` pauses on Delete, Backspace, undo and redo, before any of
   them applies, even when there turns out to be nothing to apply.
 - A scrub pauses before `goTo`.
@@ -546,17 +658,20 @@ src/
 │   ├── scene/
 │   │   ├── types.ts             SceneElement union, Scene (z-order = array order)
 │   │   ├── store.ts             createSceneStore — observable scene state; add/insert/replace/remove
-│   │   ├── factory.ts           createRectangle/Ellipse/Freehand, normalizeRect, DEFAULT_STYLE
+│   │   ├── factory.ts           createRectangle/Ellipse/Freehand, normalizeRect, DEFAULT_STYLE, isTooSmallStroke
 │   │   ├── hit-test.ts          hitTest (back-to-front) + per-type point tests
-│   │   ├── bounds.ts            getBoundingBox — world-space bbox per element
+│   │   ├── bounds.ts            getBoundingBox — world-space bbox per element; getPointsBounds
 │   │   ├── translate.ts         translateElement — offset an element's origin
 │   │   ├── resize.ts            fitElement — fit into a (maybe flipped) box; MIN_ELEMENT_SIZE
+│   │   ├── erase.ts             outline test, splitStroke, the gesture's Erasure, eraseAlong, getErasePreview
 │   │   └── index.ts             barrel → @core/scene
 │   ├── editor/
 │   │   ├── store.ts             createEditorStore — observable selection state
 │   │   └── index.ts             barrel → @core/editor
 │   ├── history/
-│   │   ├── history.ts           createHistory — undo/redo stacks of add/replace/remove entries; present, count, subscribe, goTo
+│   │   ├── history.ts           createHistory — undo/redo stacks of add/replace/remove/compound entries; present, count, subscribe, goTo
+│   │   ├── erase.ts             applyErase — make an erasure in the store as one compound entry
+│   │   ├── selection.ts         getEntrySelection — what to select after an entry is undone or redone
 │   │   ├── replay.ts            createReplay — redo on a timer, about 4 entries a second
 │   │   └── index.ts             barrel → @core/history
 │   ├── persistence/
@@ -577,12 +692,13 @@ src/
 └── react/
     ├── DocumentLoader.tsx       Suspense gate on the load; picks the board's notices
     ├── CanvasBoard.tsx          owns <canvas> + sizing; wires store, history, toolbar, tools, timeline, persistence
-    ├── usePanZoom.ts            viewport state, wheel input, render loop
+    ├── usePanZoom.ts            viewport state, wheel input, render loop; draws the erase preview
     ├── useDrawTool.ts           pointer-drag shape creation; records add
     ├── useSelectTool.ts         click-to-select, drag-to-move, drag-a-handle-to-resize; records replace
+    ├── useEraserTool.ts         the eraser gesture: preview while pressed, commit on release; records compound
     ├── useEditorKeys.ts         editor shortcuts, any tool: delete, undo, redo; pauses a replay first
     ├── useCanvasPress.ts        whether the canvas is pressed, as a ref; keys and timeline hold off then
-    ├── historySelection.ts      selectEntryElement — select what an undo, redo, scrub or replay step changed
+    ├── historySelection.ts      selectEntryElement — applies getEntrySelection after an undo, redo, scrub or replay step
     ├── useTimelineOpen.ts       H opens and closes the timeline
     ├── useReplay.ts             creates the replay; pauses it on a canvas press or when the bar closes
     ├── Timeline.tsx             the history bar: marks, thumb, scrub, play/pause and Space

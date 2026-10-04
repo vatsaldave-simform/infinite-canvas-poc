@@ -132,3 +132,73 @@ one GitHub issue.
 | 1 | Erase rectangles and ellipses | Eraser tool and cursor, outline test, preview scene with the touched shapes faded, commit on release, Escape and pointercancel, compound entry with tests, the selection rule generalised. Freehand strokes are untouched. |
 | 2 | Erasing splits freehand strokes | Resample and drop along the swept path, pieces at the original's depth, tiny pieces dropped, crossed parts faded in the preview, the undo-everything test extended. |
 | 3 | Close-out | `ARCHITECTURE.md`, the roadmap row, close-out notes here. |
+
+---
+
+## Close-out
+
+M15 is done. No decision above was reversed. What differs below is detail the
+decisions left open, or a small departure from their wording. The work went
+out as GitHub issues #21–#23, one per build-order slice, in that order. The two
+code slices (#21, #22) each ran from core to the toolbar; #23 is this
+close-out.
+
+**What differs from the plan, and why:**
+
+- **The outline test measures segment to segment, not point to segment.**
+  Decision 2 says the existing point-to-segment distance covers the ellipse.
+  It is still underneath, but on its own it misses a long path segment that
+  crosses a side between two far-apart samples, because every end can be far
+  from the other segment. `pathTouchesOutline` checks for a crossing first
+  (distance 0), then takes the closest of the four ends.
+- **The preview fades the whole cut stroke, beneath its pieces.** Decision 7
+  says the parts being erased are drawn faded, and rejects fading the whole
+  touched element because it hides where the cut lands. Drawing the original
+  faded *beneath* its full-strength pieces shows exactly the erased parts, and
+  needs no geometry for them. `ErasePreview` is `{ scene, erased }`, so the
+  render loop still draws two plain arrays. ADR-0002's amendment said
+  "nothing is double-drawn" and now describes this instead.
+- **The stroke width only widens the reach on freehand strokes.** Decision 6
+  adds half "the stroke's width". Rectangle and ellipse outlines use the
+  radius alone. At the default width of 2 the difference is 1 world unit.
+- **Erasing is incremental, and lives in core.** The plan did not say where
+  the gesture's state lives. An `Erasure` (ids to remove, pieces per cut
+  stroke) is gesture state in `src/core/scene/erase.ts`, changed in place like
+  a draft. `eraseAlong` erases one stretch of the path against the scene as
+  the gesture began, cutting only the pieces left so far, so earlier stretches
+  are never worked out again. The pieces in the preview are the elements that
+  get committed, ids and all. A cheap box check skips strokes nowhere near the
+  stretch before subdividing them.
+- **The commit and the selection rule are core functions, tested in node.**
+  `applyErase` (`src/core/history/erase.ts`) makes the erase in the store and
+  returns the compound. `getEntrySelection` (`src/core/history/selection.ts`)
+  is the generalised rule; `selectEntryElement` in `historySelection.ts` only
+  applies it. M14's close-out expected a new case in `getEntryElementId`
+  there instead; the rule moved into core so it could be tested.
+- **Shared helpers moved into core.** The tiny-stroke test became
+  `isTooSmallStroke` in `factory.ts`, shared by the freehand tool and the
+  split, as decision 5 implied. `getPointsBounds` in `bounds.ts` replaced two
+  copies of the same min/max loop, and the split's box check uses it too. `ErasePreview` moved from the hook into
+  core.
+- **Leaving the tool mid-gesture erases nothing too.** Decision 8 names
+  pointercancel and Escape. The hook's cleanup takes the same path, so
+  switching tools while pressed cannot leave a preview behind.
+- **Committing clears the selection if it was erased.** Switching to the
+  eraser clears it already, but an undo, a redo or a scrub while on the eraser
+  can select something, and the selection must never point at a missing
+  element.
+- **One pointer erases at a time.** The hook keeps the pressed pointer's id
+  and ignores the others, which the draw and select tools do not. A second
+  finger mid-erase would otherwise add its own samples to the same path.
+
+**For M16:** turning a stroke into a rectangle or ellipse changes its type.
+It can be recorded as a compound of a remove and an add at the same index, as
+a split is, or as a `replace` if the new element keeps the stroke's id. Either
+needs no new entry kind; the plan should decide which, since it decides what
+the selection rule selects afterwards.
+
+**Still open (non-goals, can be picked up any time):** erasing part of a
+rectangle or ellipse, an eraser size control, Escape cancelling other
+gestures, tool keyboard shortcuts, and restoring erased parts by moving back
+over them. From earlier milestones: undo and redo buttons, a `toggle()` on the
+replay, Space in its own hook, Shift/Alt resize modifiers and arrow-key nudge.

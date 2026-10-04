@@ -50,6 +50,8 @@ draft-style preview rejected above. The reason for rejecting it does not apply
 there. An erase swaps whole elements for their pieces, so its preview is a
 whole **preview scene**: an ordinary scene array the render loop draws instead
 of the store's while the eraser is pressed. `renderScene` needs no "exclude
-this id" parameter, and nothing is double-drawn. Previewing is what lets the
-eraser show the parts about to go, faded, and lets a cancelled erase change
-nothing.
+this id" parameter. Beneath the preview scene, a second plain array of every
+element the erase touched is drawn faded. A cut stroke is in both, on purpose:
+the faded copy showing between its pieces is the part being erased. Previewing
+is what lets the eraser show the parts about to go, and lets a cancelled erase
+change nothing.

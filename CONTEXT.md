@@ -68,9 +68,9 @@ Selection is held **by identity, not by reference**: an element is replaced by a
 new one whenever it changes, so a captured reference would go stale where an
 identity stays valid.
 
-**Tool** — the active input mode chosen in the toolbar: select, or one of the
-drawable types. Editor state in meaning, but held by the UI layer, because only
-input handling and the toolbar depend on it.
+**Tool** — the active input mode chosen in the toolbar: select, one of the
+drawable types, or the eraser. Editor state in meaning, but held by the UI
+layer, because only input handling and the toolbar depend on it.
 
 ---
 

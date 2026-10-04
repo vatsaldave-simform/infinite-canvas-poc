@@ -73,7 +73,9 @@ This is not the editor-action entry rejected above. A compound adds no new
 operation and knows nothing about the gesture that produced it, so history
 still has three operations whose inverses pair up, and any future action that
 changes several elements can use it unchanged. A split is "remove the stroke,
-then insert its pieces where it stood"; there is no `split` kind.
+then add its pieces at its index and after", so they stand where it stood;
+there is no `split` kind. The eraser records the compound on release, like
+every other owner of an action.
 
 The selection rule after an undo or redo generalises with it: select the one
 element the entry touched if exactly one of them is in the scene afterwards,
