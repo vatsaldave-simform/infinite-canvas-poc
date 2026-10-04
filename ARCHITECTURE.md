@@ -105,7 +105,7 @@ Selection is **editor state, not document state** — it is *not* part of the sc
 - `getSelectedId()` / `select(id | null)` / `subscribe(fn)` — holds a single selected **id**, or `null`.
 - Selection references an element **by id, not by object**: immutable mutations (e.g. moving in M8) replace the element with a new object, and an id stays valid across that where a captured reference would go stale.
 
-`usePanZoom` subscribes to it alongside the scene store and repaints via the same ref/rAF path; the render loop looks the id up in the current scene and draws the highlight (step 5 above). Drawing any shape auto-selects it.
+`usePanZoom` subscribes to it alongside the scene store and repaints via the same ref/rAF path; the render loop looks the id up in the current scene and draws the highlight (step 5 above). Drawing any shape auto-selects it, and drawing a rectangle or ellipse also switches the tool back to select, as Excalidraw does. Freehand keeps its tool, since handwriting takes many strokes in a row.
 
 ## Selecting & moving
 
@@ -168,7 +168,7 @@ hit-testing can't disagree. Three rules shape it:
   would be ambiguous with starting a shape. `CanvasBoard` passes
   `showHandles` (`tool === "select"`) into `usePanZoom`, which keeps it in a
   ref like the selected id. The selection box itself still shows in every
-  tool, for example straight after auto-select. The tool stays React state
+  tool, for example straight after a freehand stroke. The tool stays React state
   (`CONTEXT.md`, "Tool").
 
 The gesture lives in `useSelectTool`, beside move. On `pointerdown` the

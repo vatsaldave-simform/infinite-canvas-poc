@@ -34,6 +34,8 @@ interface DrawToolParams {
   editorStore: EditorStore
   /** Undo/redo history — each committed shape is recorded as one `add`. */
   history: History
+  /** Switches the active tool; used to return to select after a shape. */
+  onToolChange: (tool: Tool) => void
 }
 
 /**
@@ -43,6 +45,10 @@ interface DrawToolParams {
  * commits with store.addElement, recording one history `add` so undo can take
  * it back out. Navigation is wheel-driven, so pointer-drag drawing never
  * collides with it.
+ *
+ * After a rectangle or ellipse the tool returns to select, so the next click
+ * can pick up what was just drawn. Freehand stays put: handwriting takes many
+ * strokes in a row.
  *
  * Creation only — selecting and moving are useSelectTool's job.
  */
@@ -55,6 +61,7 @@ export function useDrawTool({
   draftRef,
   editorStore,
   history,
+  onToolChange,
 }: DrawToolParams) {
   useEffect(() => {
     const canvas = canvasRef.current
@@ -186,6 +193,7 @@ export function useDrawTool({
           ? createEllipse(from, end)
           : createRectangle(from, end)
       commit(el)
+      onToolChange('select')
     }
 
     // A captured drag can be cut short by the browser (touch interruption,
@@ -215,5 +223,6 @@ export function useDrawTool({
     draftRef,
     editorStore,
     history,
+    onToolChange,
   ])
 }
