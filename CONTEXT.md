@@ -197,3 +197,26 @@ plain data, not a *command*: it holds no behaviour of its own, and history
 decides how to undo and redo it. Undoing or redoing an entry also selects the
 element it touched, when that element is in the scene afterwards, and clears
 the selection otherwise.
+
+**Timeline** — the editor's view of history: one mark per history entry, laid
+out in order, with the document's current place among them. It is not a second
+record and not a preview. It shows history, and moving along it *is* undo and
+redo, so the document really changes as it moves. Shown only while it is open.
+
+**Scrub** — moving along the timeline by dragging, to any point in history at
+once. Scrubbing back is undoing that many entries, and scrubbing forward is
+redoing them. Contrast **drag**, the input gesture, which a scrub is performed
+with.
+
+**Replay** — stepping forward through history on its own, one entry at a time
+at a steady rate, so the document rebuilds itself in front of you. A replay is
+redo on a timer, and it stops when there is nothing left to redo.
+
+**Past** / **Present** / **Future** — where the document stands in history.
+The *past* is the entries that can be undone, the *future* is the ones that can
+be redone, and the *present* is the point between them: the document as it is
+now. Undo, redo, scrubbing and replay all move the present; making a new change
+throws the future away. The earliest point is **the document as loaded**, not
+an empty scene, because history starts empty on every page load. Prefer these
+words to "position" (an element's place in the world), "origin" (the world's)
+or "cursor" (the pointer's).
