@@ -1,7 +1,7 @@
 import { useEffect, type RefObject } from "react";
 import type { SceneStore } from "@core/scene";
 import type { EditorStore } from "@core/editor";
-import type { History } from "@core/history";
+import type { History, Replay } from "@core/history";
 import { selectEntryElement } from "./historySelection";
 
 interface EditorKeysParams {
@@ -10,6 +10,7 @@ interface EditorKeysParams {
   store: SceneStore;
   editorStore: EditorStore;
   history: History;
+  replay: Replay;
 }
 
 type EditorAction = "delete" | "undo" | "redo";
@@ -37,13 +38,14 @@ function getAction(e: KeyboardEvent): EditorAction | null {
  *
  * All of them are ignored while a pointer is pressed on the canvas, so none
  * can cut into a move, a resize, or a shape being drawn. Held keys repeat, so
- * holding Ctrl+Z keeps undoing.
+ * holding Ctrl+Z keeps undoing. Each one pauses a replay before it applies.
  */
 export function useEditorKeys({
   canvasPressRef,
   store,
   editorStore,
   history,
+  replay,
 }: EditorKeysParams) {
   useEffect(() => {
     const deleteSelected = () => {
@@ -79,6 +81,9 @@ export function useEditorKeys({
 
       // Ours now, so the browser's own Ctrl+Z / Ctrl+Y never runs as well.
       e.preventDefault();
+      // All of these change the document, so pause a replay first: a change
+      // mid-replay would otherwise throw away the rest of the future.
+      replay.pause();
 
       switch (action) {
         case "delete":
@@ -95,5 +100,5 @@ export function useEditorKeys({
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canvasPressRef, store, editorStore, history]);
+  }, [canvasPressRef, store, editorStore, history, replay]);
 }

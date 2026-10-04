@@ -9,6 +9,7 @@ import { useSelectTool } from "./useSelectTool";
 import { useEditorKeys } from "./useEditorKeys";
 import { useCanvasPress } from "./useCanvasPress";
 import { useTimelineOpen } from "./useTimelineOpen";
+import { useReplay } from "./useReplay";
 import { usePersistence } from "./usePersistence";
 import { useDiagnostics } from "./useDiagnostics";
 import { Toolbar } from "./Toolbar";
@@ -81,8 +82,15 @@ export function CanvasBoard({ db, initialScene, notices }: CanvasBoardProps) {
   });
   // The editor keys and the timeline both hold off while the canvas is pressed.
   const canvasPressRef = useCanvasPress(canvasRef);
-  useEditorKeys({ canvasPressRef, store, editorStore, history });
   const timelineOpen = useTimelineOpen();
+  const replay = useReplay({
+    canvasRef,
+    store,
+    editorStore,
+    history,
+    timelineOpen,
+  });
+  useEditorKeys({ canvasPressRef, store, editorStore, history, replay });
   // Lets the diagnostics fail writes on purpose. Dev-only, so production writes
   // go straight to storage and the switch is tree-shaken out.
   const [writeFaults] = useState(() =>
@@ -123,6 +131,7 @@ export function CanvasBoard({ db, initialScene, notices }: CanvasBoardProps) {
       {timelineOpen && (
         <Timeline
           history={history}
+          replay={replay}
           store={store}
           editorStore={editorStore}
           canvasPressRef={canvasPressRef}

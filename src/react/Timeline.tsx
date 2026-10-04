@@ -1,11 +1,12 @@
-import { useRef, useSyncExternalStore, type RefObject } from 'react'
+import { useEffect, useRef, useSyncExternalStore, type RefObject } from 'react'
 import type { SceneStore } from '@core/scene'
 import type { EditorStore } from '@core/editor'
-import type { History } from '@core/history'
+import type { History, Replay } from '@core/history'
 import { selectEntryElement } from './historySelection'
 
 interface TimelineProps {
   history: History
+  replay: Replay
   store: SceneStore
   editorStore: EditorStore
   /** Whether a pointer is pressed on the canvas; the bar ignores input then. */
@@ -29,10 +30,15 @@ const ACCENT = '#1e88e5'
  * scrubs, which is real undo and redo through history, so the document
  * changes as the thumb moves. Marks in the future are dimmed: a new change
  * throws them away.
+ *
+ * The play button, or Space while the bar is open, replays history from the
+ * present: the document rebuilds itself one entry at a time. Scrubbing pauses
+ * a replay.
  */
-export function Timeline({ history, store, editorStore, canvasPressRef }: TimelineProps) {
+export function Timeline({ history, replay, store, editorStore, canvasPressRef }: TimelineProps) {
   const present = useSyncExternalStore(history.subscribe, history.getPresent)
   const count = useSyncExternalStore(history.subscribe, history.getCount)
+  const playing = useSyncExternalStore(replay.subscribe, replay.isPlaying)
 
   const railRef = useRef<HTMLDivElement>(null)
   // The pointer scrubbing right now, or null between scrubs.
@@ -45,6 +51,8 @@ export function Timeline({ history, store, editorStore, canvasPressRef }: Timeli
     // The bar takes no input while the canvas is pressed.
     if (canvasPressRef.current) return
 
+    // A scrub takes over from a replay.
+    replay.pause()
     const entry = history.goTo(target)
     // A scrub that applied nothing leaves the selection alone.
     if (entry) selectEntryElement(entry, store, editorStore)
@@ -88,11 +96,48 @@ export function Timeline({ history, store, editorStore, canvasPressRef }: Timeli
     scrubTo(target)
   }
 
+  // Space plays and pauses. The bar is only mounted while it is open, so
+  // Space does nothing while it is closed.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!isSpace(e)) return
+      // Stop the page scrolling, and a focused button clicking as well.
+      e.preventDefault()
+      // Holding Space would flicker between play and pause.
+      if (e.repeat) return
+
+      togglePlay(replay, canvasPressRef)
+    }
+
+    // Some browsers click a focused button when Space comes back up.
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (isSpace(e)) e.preventDefault()
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+    }
+  }, [replay, canvasPressRef])
+
+  const hasFuture = present < count
   const dense = count > MAX_SEPARATE_MARKS
   const presentAlongRail = alongRail(present)
 
   return (
     <div style={styles.bar}>
+      <button
+        type="button"
+        aria-label={playing ? 'Pause' : 'Play'}
+        title={playing ? 'Pause (Space)' : 'Play (Space)'}
+        disabled={!hasFuture}
+        onClick={() => togglePlay(replay, canvasPressRef)}
+        style={{ ...styles.playButton, ...(hasFuture ? null : styles.playButtonDisabled) }}
+      >
+        {playing ? <PauseIcon /> : <PlayIcon />}
+      </button>
       <div
         role="slider"
         tabIndex={0}
@@ -150,6 +195,40 @@ export function Timeline({ history, store, editorStore, canvasPressRef }: Timeli
   )
 }
 
+/** Pause a replay that is playing, or start one. Not while the canvas is pressed. */
+function togglePlay(replay: Replay, canvasPressRef: RefObject<boolean>) {
+  if (canvasPressRef.current) return
+
+  if (replay.isPlaying()) {
+    replay.pause()
+  } else {
+    replay.play()
+  }
+}
+
+/** A plain Space press: with Ctrl, Cmd or Alt it belongs to someone else. */
+function isSpace(e: KeyboardEvent): boolean {
+  if (e.ctrlKey || e.metaKey || e.altKey) return false
+  return e.key === ' '
+}
+
+function PlayIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+      <path d="M3 1.5 L10.5 6 L3 10.5 Z" fill="currentColor" />
+    </svg>
+  )
+}
+
+function PauseIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+      <rect x="2" y="1.5" width="3" height="9" rx="1" fill="currentColor" />
+      <rect x="7" y="1.5" width="3" height="9" rx="1" fill="currentColor" />
+    </svg>
+  )
+}
+
 /** The points of history that end an entry: 1 to `count`. */
 function getEntryPoints(count: number): number[] {
   const points: number[] = []
@@ -196,7 +275,7 @@ const styles = {
     width: 'min(560px, calc(100vw - 32px))',
     height: BAR_HEIGHT,
     boxSizing: 'border-box',
-    padding: '0 16px 0 6px',
+    padding: '0 16px 0 8px',
     borderRadius: 12,
     background: 'rgba(255,255,255,0.9)',
     backdropFilter: 'blur(8px)',
@@ -204,6 +283,25 @@ const styles = {
     border: '1px solid rgba(0,0,0,0.06)',
     zIndex: 10,
     userSelect: 'none',
+  },
+  playButton: {
+    appearance: 'none',
+    flexShrink: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 32,
+    height: 32,
+    padding: 0,
+    border: 'none',
+    borderRadius: '50%',
+    background: ACCENT,
+    color: '#fff',
+    cursor: 'pointer',
+  },
+  playButtonDisabled: {
+    opacity: 0.35,
+    cursor: 'default',
   },
   // The part that takes input: taller than the rail, so it is easy to hit.
   scrubArea: {
