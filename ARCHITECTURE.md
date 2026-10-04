@@ -9,8 +9,8 @@ The codebase is split into two layers with a strict, one-directional dependency:
 ```
 src/core/   — the engine: plain data + pure logic. No React, no DOM assumptions
               beyond standard browser APIs (Canvas 2D, storage).
-src/react/  — the UI: owns the <canvas> DOM node, wires pointer/wheel events,
-              and renders UI chrome (toolbar). Calls into core/.
+src/react/  — the UI: owns the <canvas> DOM node, wires pointer/wheel/key events,
+              and renders UI chrome (toolbar, timeline). Calls into core/.
 ```
 
 **Dependencies flow `react/ → core/`, never the reverse.** This is enforced at build time — `eslint.config.js` makes any React import from within `src/core/**` an error. The point: the engine is framework-agnostic and could be driven by any UI.
@@ -232,10 +232,11 @@ only runs in the select tool. There is no toolbar button: the toolbar holds tool
   (a move, a resize, a shape being drawn), the key does nothing. Otherwise
   Delete mid-draw would delete the *previous* element, and Delete mid-move
   would leave the outcome to how `replaceElement` happens to treat an unknown
-  id. The hook keeps its own `pressing` flag, set by the canvas's `pointerdown`
-  and cleared by `pointerup` / `pointercancel` on the window, rather than
-  sharing "is gesturing" state between hooks. The same flag covers undo and
-  redo (see *History*).
+  id. The press is tracked by `src/react/useCanvasPress.ts`, a ref set by the
+  canvas's left-button `pointerdown` and cleared by `pointerup` /
+  `pointercancel` on the window. It watches the canvas rather than asking the
+  tools whether they are gesturing. The same ref covers undo and redo (see
+  *History*) and the timeline (see *Timeline*).
 
 `removeElement` notifies like every other mutation, so the render loop
 repaints and the persister saves the change.
@@ -263,9 +264,9 @@ reference to it: it never subscribes. It keeps two stacks. `record(entry)`
 pushes onto the undo stack and empties the redo stack, so history is
 **linear**. `undo()` and `redo()` apply an entry through the store and return
 it, or return `null` and touch nothing when there is nothing to apply. History
-is plain core code, with no DOM and no React, tested in node. It has no
-`subscribe` of its own: with no undo or redo buttons, nothing needs to redraw
-when "can undo" changes.
+is plain core code, with no DOM and no React, tested in node. It also has a
+`subscribe` of its own, read access to the present and the count, and
+`goTo(n)`; the timeline is what needs them (see *Timeline*).
 
 **Entries are scene operations, as plain data.** An entry says what happened to
 the scene, not which gesture did it, and holds no behaviour; history
@@ -309,8 +310,9 @@ skips its record, but not a hook that forgets to record. For a new action,
 undoing everything in the browser is the check.
 
 **The keys** live in `useEditorKeys`, beside Delete: one keydown listener on the
-window and one `pressing` flag for Delete, Backspace, undo and redo. Escape
-stays in `useSelectTool`, because deselecting only means something there.
+window for Delete, Backspace, undo and redo, all checking the press ref from
+`useCanvasPress`. Escape stays in `useSelectTool`, because deselecting only
+means something there.
 
 - **Ignored mid-press,** like Delete. Otherwise undo would revert the
   *previous* entry while a live drag kept writing over it.
@@ -321,8 +323,10 @@ stays in `useSelectTool`, because deselecting only means something there.
   entry changed is selected if it is in the scene now, otherwise the selection
   is cleared, so it never points at a missing id. Undoing a move or a delete
   selects that element; undoing a draw, or redoing a delete, clears the
-  selection. With nothing to apply, the selection is left alone. The rule
-  lives in the hook, because history never sees the editor store.
+  selection. With nothing to apply, the selection is left alone. The rule is
+  `selectEntryElement` in `src/react/historySelection.ts`, which the keys, a
+  scrub and a replay all share. It lives in the React layer because history
+  never sees the editor store.
 
 **What history leaves out.** Selection, the tool and the viewport are editor
 state and are not undoable. History is never persisted, so a reload starts
@@ -332,6 +336,99 @@ through the store, which notifies, and the debounced persister saves the
 result, so a burst of held-key undos becomes one write. The dev diagnostics'
 `fill` adds elements without recording; an entry assumes the scene is as
 history left it, and that is accepted for a dev tool.
+
+## Timeline
+
+`H` opens and closes the timeline, a bar at the bottom of the viewport that
+shows history: a ring for the document as loaded, one mark per entry, and a
+thumb at the present. Moving the thumb **scrubs**, and the play button
+**replays**. The vocabulary (timeline, scrub, replay, past, present, future) is
+in `CONTEXT.md`, and the decisions are in
+`.claude/plans/m14-history-timeline.md`. There is no ADR: the timeline applies
+ADR-0005 rather than changing it.
+
+**Scrubbing is live undo and redo.** The timeline is not a preview and not a
+second record. Moving the present back three entries runs three real undos
+through the store, so the document really changes, the persister saves it,
+and Ctrl+Z moves the thumb, because it is the same thing. There is one
+rendering path and no "previewing" mode in which the canvas refuses edits.
+History stays linear: marks in the future are dimmed, which shows what a new
+change would throw away.
+
+**History grows what the bar reads.** All of it is core and tested in node:
+
+- `getPresent()` is how many entries are in the past (0 is the document as
+  loaded), and `getCount()` is past and future together.
+- `subscribe(listener)` hears every record, undo and redo. The bar is the
+  first thing that must redraw when history changes, so it needs one.
+- `goTo(n)` undoes or redoes **one entry at a time** until the present is at
+  `n`, stopping at either end of history, and returns the last entry it
+  applied, or `null` when the present was already there.
+
+The earliest point is the document as loaded, not an empty scene, because
+history is session-only and starts empty on every page load.
+
+**The bar is React chrome, like the toolbar.** `src/react/Timeline.tsx` is DOM,
+not drawn on the canvas, so the core/react boundary is unchanged. It reads the
+present and the count through `useSyncExternalStore` on history's `subscribe`.
+`src/react/useTimelineOpen.ts` holds whether it is open; it starts closed, and
+`H` with Ctrl, Cmd or Alt, or held down, is ignored. The bar is a `role="slider"`.
+Pressing or dragging on it scrubs, with pointer capture so the drag keeps
+going off the bar, and the arrow keys, Home and End scrub too. A target is
+rounded to the nearest entry, so the thumb snaps to one. Past 100 entries the
+marks merge into a continuous track. Empty history still opens, with only the
+ring. While the bar is open, `NoticeStack` takes a higher `bottom`, so notices
+sit above it.
+
+**Selection follows the last entry applied.** After a scrub, `goTo`'s return
+value goes through the same `selectEntryElement` as undo and redo. A scrub
+that applied nothing leaves the selection alone.
+
+**Ignored mid-press,** like the editor keys: the bar checks the press ref from
+`useCanvasPress` before every scrub, play and pause, so it can never cut into a
+move, a resize or a shape being drawn.
+
+**Replay is redo on a timer.** `createReplay(history, onStep)` in
+`src/core/history/replay.ts` is beside history, not part of it, and is tested
+in node with fake timers. `play()` starts a `setInterval` of `REPLAY_STEP_MS`
+(250 ms, about 4 entries a second); each step is one `redo()`, and its entry
+goes to `onStep`. It pauses itself right after the last entry, so the button
+flips back as the drawing completes, not a step later. `play()` with an empty
+future does nothing, and playing twice never starts a second timer. Its own
+`subscribe` tells the bar when it starts or stops. `src/react/useReplay.ts`
+creates it in `CanvasBoard`, with an `onStep` that applies the selection rule,
+so the selection box shows what just happened.
+
+The bar shows a play/pause button, disabled when there is no future. Space
+plays and pauses too. Its listener lives inside `Timeline`, which is only
+mounted while the bar is open, so Space does nothing while the bar is closed.
+Space is `preventDefault`ed on keydown and keyup, so a focused button never
+clicks as well.
+
+**Anything that changes the document pauses a replay first.** Otherwise a
+draw mid-replay would silently throw away the rest of the future. Each place
+that changes the document calls `replay.pause()` by hand, the same way each
+owner records its own entry:
+
+- `useReplay` pauses on a left-button `pointerdown` on the canvas, in any
+  tool. This holds because no tool changes the document on `pointerdown`:
+  drawing commits on release, and moves and resizes write on `pointermove`.
+- `useEditorKeys` pauses on Delete, Backspace, undo and redo, before any of
+  them applies, even when there turns out to be nothing to apply.
+- A scrub pauses before `goTo`.
+- Closing the bar pauses it, through the cleanup of an effect that only runs
+  while the bar is open; the same cleanup covers unmount.
+
+Pan and zoom are on the wheel and only move the viewport, so a replay keeps
+playing through them. A new document change must pause a replay too, as well
+as record its entry.
+
+**Many writes, one frame and one save.** A scrub across many entries is many
+store writes, each notifying. The render loop coalesces them into one frame
+(`scheduleRender` no-ops while a frame is pending), and the debounced
+persister into one write. A replay's steps are 250 ms apart, inside the
+persister's 300 ms debounce, so each step repaints but a whole replay is saved
+in one write once it stops (or on hide, as usual).
 
 ## Persistence
 
@@ -401,7 +498,7 @@ A failed write is logged to the console and sets the status to `failing`. Causes
 
 When the load is `unavailable`, the board gets `db: null` and `usePersistence` mounts no persister. **Persisting is off for the session.** The canvas is fully drawable, and a non-dismissible notice says the drawing will be lost when the tab closes. Without the notice, the board would look exactly like one that is saving.
 
-Notices (`src/react/Notice.tsx`) stack at the bottom of the viewport. The stack lets pointer events through, so only a notice's own box is off-limits: the canvas around it stays drawable, and the toolbar is never covered.
+Notices (`src/react/Notice.tsx`) stack at the bottom of the viewport. The stack lets pointer events through, so only a notice's own box is off-limits: the canvas around it stays drawable, and the toolbar is never covered. While the timeline is open the stack sits above it (see *Timeline*).
 
 ### Known limitation: multiple tabs
 
@@ -459,7 +556,8 @@ src/
 │   │   ├── store.ts             createEditorStore — observable selection state
 │   │   └── index.ts             barrel → @core/editor
 │   ├── history/
-│   │   ├── history.ts           createHistory — undo/redo stacks of add/replace/remove entries
+│   │   ├── history.ts           createHistory — undo/redo stacks of add/replace/remove entries; present, count, subscribe, goTo
+│   │   ├── replay.ts            createReplay — redo on a timer, about 4 entries a second
 │   │   └── index.ts             barrel → @core/history
 │   ├── persistence/
 │   │   ├── format.ts            StoredDocument envelope, FORMAT_VERSION, QuarantineRecord
@@ -478,11 +576,16 @@ src/
 │       └── index.ts             barrel → @core/canvas
 └── react/
     ├── DocumentLoader.tsx       Suspense gate on the load; picks the board's notices
-    ├── CanvasBoard.tsx          owns <canvas> + sizing; wires store, history, toolbar, tools, persistence
+    ├── CanvasBoard.tsx          owns <canvas> + sizing; wires store, history, toolbar, tools, timeline, persistence
     ├── usePanZoom.ts            viewport state, wheel input, render loop
     ├── useDrawTool.ts           pointer-drag shape creation; records add
     ├── useSelectTool.ts         click-to-select, drag-to-move, drag-a-handle-to-resize; records replace
-    ├── useEditorKeys.ts         editor shortcuts, any tool: delete, undo, redo; selection after both
+    ├── useEditorKeys.ts         editor shortcuts, any tool: delete, undo, redo; pauses a replay first
+    ├── useCanvasPress.ts        whether the canvas is pressed, as a ref; keys and timeline hold off then
+    ├── historySelection.ts      selectEntryElement — select what an undo, redo, scrub or replay step changed
+    ├── useTimelineOpen.ts       H opens and closes the timeline
+    ├── useReplay.ts             creates the replay; pauses it on a canvas press or when the bar closes
+    ├── Timeline.tsx             the history bar: marks, thumb, scrub, play/pause and Space
     ├── usePersistence.ts        mounts the persister, flushes on hide, returns persist status
     ├── useDiagnostics.ts        dev-only window.canvasDiagnostics handle
     ├── pointer.ts               pointerToScreen / pointerToWorld — shared event → point

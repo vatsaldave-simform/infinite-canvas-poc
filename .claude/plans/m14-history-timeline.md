@@ -111,3 +111,70 @@ the browser, and is one GitHub issue.
 | 1 | Open the timeline and scrub through history | History: present, count, `subscribe`, `goTo`, with tests. The bar, `H`, dimmed future, dense track, the "as loaded" mark, the selection rule after a scrub, ignored mid-press, notices moved up. |
 | 2 | Replay history | Play/pause and Space, about 4 steps per second, selection per step, paused by any document change, pan and zoom unaffected. |
 | 3 | Close-out | `ARCHITECTURE.md` "Timeline" section, the History section's "no `subscribe`" corrected, the file map, the roadmap row, close-out notes here. |
+
+---
+
+## Close-out
+
+M14 is done. No decision above was reversed; what differs below is detail the
+decisions left open, or a small departure from their wording. The work went
+out as GitHub issues #18–#20, one per build-order slice, and in that order.
+The two code slices (#18, #19) each ran from core to the bar; #20 is this
+close-out. #19 was checked in Chrome through the extension, with real pointer
+and key events: a replay from the document as loaded, Space with the bar open
+and closed and with a toolbar button focused, a draw, Delete, Ctrl+Z and a
+scrub each pausing it, wheel pan and zoom not pausing it, and closing the bar.
+
+**What differs from the plan, and why:**
+
+- **Replay is its own core module, not a fourth thing on history.**
+  Decision 10 lists what history grows, and replay is not on it.
+  `createReplay(history, onStep)` sits beside history in
+  `src/core/history/replay.ts`. That keeps timers out of history, which stays
+  synchronous, and its tests stay free of fake timers. `onStep` keeps the
+  selection rule out of core, as before: the React side passes
+  `selectEntryElement`.
+- **Two pieces moved out of `useEditorKeys` so the timeline could share
+  them.** The canvas-press tracking became `src/react/useCanvasPress.ts`, and
+  the selection rule became `selectEntryElement` in
+  `src/react/historySelection.ts`. M13's close-out had put both in the hook.
+- **A scrub is more than a drag.** A single press on the bar jumps the present
+  there. The bar is a `role="slider"`, so the arrow keys, Home and End scrub
+  too. A counter beside it reads "As loaded" or "n / count". The glossary's
+  "Scrub" said "by dragging", and now says a press or the keys scrub as well.
+- **A replay pauses itself right after the last entry,** not on the next tick
+  when `redo` finds nothing, so the button flips back as the drawing
+  completes.
+- **Any left-button press on the canvas pauses a replay,** in any tool,
+  including a click that changes nothing. Decision 9 says "pressing on the
+  canvas with a tool". Watching the canvas is simpler than asking each tool
+  whether its press will change the document. Likewise Delete pauses even with
+  nothing selected, and undo and redo even with nothing to apply. The pause
+  and the tools' own `pointerdown` listeners run in no fixed order (a tool
+  re-adds its listener whenever the tool changes), which is safe only because
+  no tool changes the document on `pointerdown`.
+- **"Closing the bar stops a replay" is a pause.** There is only `pause()`.
+  The glossary keeps "stops" for a replay reaching the end of history, and now
+  defines pausing.
+- **The pause is applied by hand in four places:** a canvas press, the editor
+  keys, a scrub, and closing the bar. This is the same trade-off as recording
+  (ADR-0005). Every new document change must now pause a replay as well as
+  record its entry. `ARCHITECTURE.md` ("Timeline") says so.
+- **Space is blocked on keyup too.** Some browsers click a focused button when
+  Space comes back up. Without this, Space with a toolbar button focused could
+  also pick that tool there.
+- **A whole replay is saved in one write.** Its steps are 250 ms apart, inside
+  the persister's 300 ms debounce, so each step repaints but nothing is saved
+  until the replay stops. The plan's consequences only said this for a scrub.
+
+**For M15:** the timeline and replay need nothing from a new kind of entry;
+they only move the present through undo and redo. `getEntryElementId` in
+`historySelection.ts` does need a case for it, and `tsc` will say so, since
+the function returns a string. An entry that changes several elements needs a
+decision on what the selection rule selects.
+
+**Still open (non-goals, can be picked up any time):** undo and redo buttons,
+now easy since history has a `subscribe`. From the review of #19: a
+`toggle()` on the replay, and Space moving into its own hook like the other
+shortcuts. Shift/Alt resize modifiers and arrow-key nudge are still open from
+earlier milestones.

@@ -203,14 +203,17 @@ out in order, with the document's current place among them. It is not a second
 record and not a preview. It shows history, and moving along it *is* undo and
 redo, so the document really changes as it moves. Shown only while it is open.
 
-**Scrub** — moving along the timeline by dragging, to any point in history at
-once. Scrubbing back is undoing that many entries, and scrubbing forward is
-redoing them. Contrast **drag**, the input gesture, which a scrub is performed
-with.
+**Scrub** — moving along the timeline to any point in history at once.
+Scrubbing back is undoing that many entries, and scrubbing forward is redoing
+them. A scrub is usually performed with a **drag**, the input gesture, but
+pressing once on the timeline, or using the arrow keys on it, scrubs too.
 
 **Replay** — stepping forward through history on its own, one entry at a time
 at a steady rate, so the document rebuilds itself in front of you. A replay is
-redo on a timer, and it stops when there is nothing left to redo.
+redo on a timer, and it stops when there is nothing left to redo. It can be
+**paused** and played again from wherever the present is. Anything that
+changes the document, a scrub included, pauses a replay first; moving the
+viewport does not.
 
 **Past** / **Present** / **Future** — where the document stands in history.
 The *past* is the entries that can be undone, the *future* is the ones that can
