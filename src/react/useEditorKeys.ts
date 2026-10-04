@@ -28,6 +28,16 @@ function getAction(e: KeyboardEvent): EditorAction | null {
   return null;
 }
 
+/** The id of the element a history entry changed. */
+function getEntryElementId(entry: HistoryEntry): string {
+  switch (entry.kind) {
+    case "add":
+      return entry.element.id;
+    case "replace":
+      return entry.after.id;
+  }
+}
+
 /**
  * The editor's keyboard shortcuts, in any tool:
  * - Delete or Backspace deletes the selected element and clears the selection.
@@ -71,7 +81,7 @@ export function useEditorKeys({
     // the scene now, so you see what changed. Otherwise clear the selection,
     // so it never points at a missing element.
     const selectEntryElement = (entry: HistoryEntry) => {
-      const id = entry.after.id;
+      const id = getEntryElementId(entry);
       const inScene = store.getScene().some((element) => element.id === id);
       editorStore.select(inScene ? id : null);
     };

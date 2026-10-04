@@ -54,6 +54,59 @@ describe("createHistory", () => {
     });
   });
 
+  describe("an add entry", () => {
+    it("undo removes the element", () => {
+      const drawn = aRectangle("drawn");
+      const store = createSceneStore([aRectangle("a"), drawn]);
+      const history = createHistory(store);
+      history.record({ kind: "add", element: drawn, index: 1 });
+
+      history.undo();
+
+      expect(store.getScene()).toEqual([aRectangle("a")]);
+    });
+
+    it("redo puts the element back at the index it was added at", () => {
+      // "drawn" sits below "b", so putting it back on top would be wrong.
+      const drawn = aRectangle("drawn");
+      const store = createSceneStore([aRectangle("a"), drawn, aRectangle("b")]);
+      const history = createHistory(store);
+      history.record({ kind: "add", element: drawn, index: 1 });
+      history.undo();
+
+      history.redo();
+
+      expect(store.getScene()).toEqual([aRectangle("a"), drawn, aRectangle("b")]);
+    });
+
+    it("undo and redo return the entry they applied", () => {
+      const entry = { kind: "add" as const, element: aRectangle("a"), index: 0 };
+      const history = createHistory(createSceneStore([entry.element]));
+      history.record(entry);
+
+      expect(history.undo()).toBe(entry);
+      expect(history.redo()).toBe(entry);
+    });
+  });
+
+  it("undoes a draw and a move of it in reverse order, then redoes them", () => {
+    // Draw "a" at x = 0, then move it to x = 50.
+    const store = createSceneStore([aRectangle("a", 50)]);
+    const history = createHistory(store);
+    history.record({ kind: "add", element: aRectangle("a", 0), index: 0 });
+    history.record({ kind: "replace", before: aRectangle("a", 0), after: aRectangle("a", 50) });
+
+    history.undo();
+    expect(store.getScene()).toEqual([aRectangle("a", 0)]);
+    history.undo();
+    expect(store.getScene()).toEqual([]);
+
+    history.redo();
+    expect(store.getScene()).toEqual([aRectangle("a", 0)]);
+    history.redo();
+    expect(store.getScene()).toEqual([aRectangle("a", 50)]);
+  });
+
   describe("with nothing to apply", () => {
     it("undo returns null and leaves the scene alone", () => {
       const store = createSceneStore([aRectangle("a")]);

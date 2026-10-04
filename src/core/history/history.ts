@@ -9,14 +9,22 @@
 import type { SceneElement, SceneStore } from "@core/scene";
 
 /**
- * One change to the scene. A `replace` swapped an element for a new version of
- * itself, as a move or a resize does.
+ * One change to the scene:
+ * - `add` put a new element into the scene at `index`, as drawing does.
+ * - `replace` swapped an element for a new version of itself, as a move or a
+ *   resize does.
  */
-export type HistoryEntry = {
-  kind: "replace";
-  before: SceneElement;
-  after: SceneElement;
-};
+export type HistoryEntry =
+  | {
+      kind: "add";
+      element: SceneElement;
+      index: number;
+    }
+  | {
+      kind: "replace";
+      before: SceneElement;
+      after: SceneElement;
+    };
 
 export interface History {
   /** Add a finished change. Anything that could have been redone is dropped. */
@@ -43,6 +51,31 @@ export function createHistory(store: SceneStore): History {
   const undoStack: HistoryEntry[] = [];
   let redoStack: HistoryEntry[] = [];
 
+  // Put the scene back as it was before the entry's change.
+  const revert = (entry: HistoryEntry) => {
+    switch (entry.kind) {
+      case "add":
+        store.removeElement(entry.element.id);
+        break;
+      case "replace":
+        store.replaceElement(entry.before);
+        break;
+    }
+  };
+
+  // Make the entry's change again.
+  const apply = (entry: HistoryEntry) => {
+    switch (entry.kind) {
+      case "add":
+        // Insert, not add: the element goes back at the depth it was drawn at.
+        store.insertElement(entry.element, entry.index);
+        break;
+      case "replace":
+        store.replaceElement(entry.after);
+        break;
+    }
+  };
+
   return {
     record(entry) {
       undoStack.push(entry);
@@ -53,7 +86,7 @@ export function createHistory(store: SceneStore): History {
       const entry = undoStack.pop();
       if (!entry) return null;
 
-      store.replaceElement(entry.before);
+      revert(entry);
       redoStack.push(entry);
       return entry;
     },
@@ -61,7 +94,7 @@ export function createHistory(store: SceneStore): History {
       const entry = redoStack.pop();
       if (!entry) return null;
 
-      store.replaceElement(entry.after);
+      apply(entry);
       undoStack.push(entry);
       return entry;
     },

@@ -21,6 +21,13 @@ export interface SceneStore {
   addElement(element: SceneElement): void;
 
   /**
+   * Immutably put an element into the scene at `index`, so it sits at that
+   * depth in the z-order. The elements around it keep their order. Notifies
+   * subscribers. An index equal to the scene's length puts it on top.
+   */
+  insertElement(element: SceneElement, index: number): void;
+
+  /**
    * Swap the element with `next.id` for `next`, immutably, PRESERVING its
    * position in the array (z-order must not change). Notifies subscribers.
    * If no element has that id, does nothing — and in particular does NOT
@@ -56,6 +63,15 @@ export function createSceneStore(initial?: Scene): SceneStore {
     },
     addElement(element: SceneElement) {
       current = [...current, element];
+      listeners.forEach((listener) => {
+        listener();
+      });
+    },
+    insertElement(element: SceneElement, index: number) {
+      const updated = [...current];
+      updated.splice(index, 0, element);
+      current = updated;
+
       listeners.forEach((listener) => {
         listener();
       });

@@ -111,6 +111,60 @@ describe("createSceneStore", () => {
     });
   });
 
+  describe("insertElement", () => {
+    it("puts the element at the given index", () => {
+      const store = createSceneStore([aRectangle("bottom"), aRectangle("top")]);
+
+      store.insertElement(aRectangle("middle"), 1);
+
+      expect(store.getScene()[1].id).toBe("middle");
+    });
+
+    it("keeps the order of the other elements", () => {
+      const store = createSceneStore([aRectangle("bottom"), aRectangle("top")]);
+
+      store.insertElement(aRectangle("middle"), 1);
+
+      expect(store.getScene().map((el) => el.id)).toEqual([
+        "bottom",
+        "middle",
+        "top",
+      ]);
+    });
+
+    it("puts the element on top when the index is the scene's length", () => {
+      const store = createSceneStore([aRectangle("bottom"), aRectangle("top")]);
+
+      store.insertElement(aRectangle("new"), 2);
+
+      expect(store.getScene().map((el) => el.id)).toEqual([
+        "bottom",
+        "top",
+        "new",
+      ]);
+    });
+
+    it("does not mutate the previous scene array", () => {
+      const initial = [aRectangle("bottom"), aRectangle("top")];
+      const store = createSceneStore(initial);
+
+      store.insertElement(aRectangle("middle"), 1);
+
+      expect(initial.map((el) => el.id)).toEqual(["bottom", "top"]);
+      expect(store.getScene()).not.toBe(initial);
+    });
+
+    it("notifies subscribers", () => {
+      const store = createSceneStore([aRectangle("bottom"), aRectangle("top")]);
+      const listener = vi.fn();
+      store.subscribe(listener);
+
+      store.insertElement(aRectangle("middle"), 1);
+
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe("removeElement", () => {
     it("removes the element with that id", () => {
       const store = createSceneStore(threeElements());

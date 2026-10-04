@@ -65,6 +65,7 @@ export function CanvasBoard({ db, initialScene, notices }: CanvasBoardProps) {
     tool,
     draftRef,
     editorStore,
+    history,
   });
   useSelectTool({
     canvasRef,

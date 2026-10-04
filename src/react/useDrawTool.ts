@@ -13,6 +13,7 @@ import {
   type SceneStore,
 } from '@core/scene'
 import type { EditorStore } from '@core/editor'
+import type { History } from '@core/history'
 import { pointerToWorld } from './pointer'
 
 /** Active canvas tool. Selecting and moving live in useSelectTool. */
@@ -31,14 +32,17 @@ interface DrawToolParams {
   draftRef: RefObject<SceneElement | null>
   /** Single-select state — set on click (select tool) and after drawing. */
   editorStore: EditorStore
+  /** Undo/redo history — each committed shape is recorded as one `add`. */
+  history: History
 }
 
 /**
  * Click-drag to create a shape. Rectangle/ellipse are two-corner drags; freehand
  * captures a point per pointermove. A draft (in draftRef, painted on top by the
  * render loop) previews the shape; pointerup finalizes via the factory and
- * commits with store.addElement. Navigation is wheel-driven, so pointer-drag
- * drawing never collides with it.
+ * commits with store.addElement, recording one history `add` so undo can take
+ * it back out. Navigation is wheel-driven, so pointer-drag drawing never
+ * collides with it.
  *
  * Creation only — selecting and moving are useSelectTool's job.
  */
@@ -50,6 +54,7 @@ export function useDrawTool({
   tool,
   draftRef,
   editorStore,
+  history,
 }: DrawToolParams) {
   useEffect(() => {
     const canvas = canvasRef.current
@@ -106,6 +111,15 @@ export function useDrawTool({
       }
     }
 
+    // Add a finished shape to the scene, record it so it can be undone, and
+    // select it. It was added on top, so its index is the last one.
+    const commit = (element: SceneElement) => {
+      store.addElement(element)
+      const index = store.getScene().length - 1
+      history.record({ kind: 'add', element, index })
+      editorStore.select(element.id) // auto-select the freshly drawn shape
+    }
+
     const onPointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return // left button only
       canvas.setPointerCapture(e.pointerId) // keep the drag if it leaves the canvas
@@ -154,9 +168,7 @@ export function useDrawTool({
           scheduleRender()
           return
         }
-        const stroke = createFreehand(points)
-        store.addElement(stroke)
-        editorStore.select(stroke.id) // auto-select the freshly drawn shape
+        commit(createFreehand(points))
         return
       }
 
@@ -173,8 +185,7 @@ export function useDrawTool({
         tool === 'ellipse'
           ? createEllipse(from, end)
           : createRectangle(from, end)
-      store.addElement(el)
-      editorStore.select(el.id) // auto-select the freshly drawn shape
+      commit(el)
     }
 
     // A captured drag can be cut short by the browser (touch interruption,
@@ -195,5 +206,14 @@ export function useDrawTool({
       canvas.removeEventListener('pointerup', onPointerUp)
       canvas.removeEventListener('pointercancel', onPointerCancel)
     }
-  }, [canvasRef, viewportRef, scheduleRender, store, tool, draftRef, editorStore])
+  }, [
+    canvasRef,
+    viewportRef,
+    scheduleRender,
+    store,
+    tool,
+    draftRef,
+    editorStore,
+    history,
+  ])
 }
