@@ -7,10 +7,13 @@ import { usePanZoom } from "./usePanZoom";
 import { useDrawTool, type Tool } from "./useDrawTool";
 import { useSelectTool } from "./useSelectTool";
 import { useEditorKeys } from "./useEditorKeys";
+import { useCanvasPress } from "./useCanvasPress";
+import { useTimelineOpen } from "./useTimelineOpen";
 import { usePersistence } from "./usePersistence";
 import { useDiagnostics } from "./useDiagnostics";
 import { Toolbar } from "./Toolbar";
 import { Notice, NoticeStack } from "./Notice";
+import { Timeline, ABOVE_TIMELINE } from "./Timeline";
 
 export interface CanvasBoardProps {
   /**
@@ -26,9 +29,9 @@ export interface CanvasBoardProps {
 
 /**
  * CanvasBoard — owns the <canvas> DOM node and its HiDPI sizing, and wires the
- * pan/zoom, draw and select tools, editor keys, and toolbar together. Scene
- * state lives in the core SceneStore; this component only subscribes and wires
- * DOM/pointer events.
+ * pan/zoom, draw and select tools, editor keys, toolbar and timeline together.
+ * Scene state lives in the core SceneStore; this component only subscribes and
+ * wires DOM/pointer events.
  * Mounted by DocumentLoader only once the persisted document has arrived.
  */
 export function CanvasBoard({ db, initialScene, notices }: CanvasBoardProps) {
@@ -76,7 +79,10 @@ export function CanvasBoard({ db, initialScene, notices }: CanvasBoardProps) {
     history,
     active: tool === "select",
   });
-  useEditorKeys({ canvasRef, store, editorStore, history });
+  // The editor keys and the timeline both hold off while the canvas is pressed.
+  const canvasPressRef = useCanvasPress(canvasRef);
+  useEditorKeys({ canvasPressRef, store, editorStore, history });
+  const timelineOpen = useTimelineOpen();
   // Lets the diagnostics fail writes on purpose. Dev-only, so production writes
   // go straight to storage and the switch is tree-shaken out.
   const [writeFaults] = useState(() =>
@@ -114,7 +120,15 @@ export function CanvasBoard({ db, initialScene, notices }: CanvasBoardProps) {
     <>
       <Toolbar tool={tool} onToolChange={setTool} />
       <canvas ref={canvasRef} />
-      <NoticeStack>
+      {timelineOpen && (
+        <Timeline
+          history={history}
+          store={store}
+          editorStore={editorStore}
+          canvasPressRef={canvasPressRef}
+        />
+      )}
+      <NoticeStack bottom={timelineOpen ? ABOVE_TIMELINE : undefined}>
         {persistStatus === "failing" && (
           <Notice
             tone="error"

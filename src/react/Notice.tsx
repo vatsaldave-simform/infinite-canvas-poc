@@ -39,13 +39,19 @@ export function Notice({ message, tone = 'warning', onDismiss }: NoticeProps) {
   )
 }
 
+interface NoticeStackProps {
+  children: ReactNode
+  /** Distance from the bottom of the viewport, raised to clear other chrome. */
+  bottom?: number
+}
+
 /**
  * NoticeStack — pins notices to the bottom of the viewport, stacked so two at
  * once never overlap. The stack itself lets pointer events through, so only
  * the notices' own boxes are off-limits to drawing.
  */
-export function NoticeStack({ children }: { children: ReactNode }) {
-  return <div style={styles.stack}>{children}</div>
+export function NoticeStack({ children, bottom = 16 }: NoticeStackProps) {
+  return <div style={{ ...styles.stack, bottom }}>{children}</div>
 }
 
 const TONE_COLORS = {
@@ -56,7 +62,6 @@ const TONE_COLORS = {
 const styles = {
   stack: {
     position: 'fixed',
-    bottom: 16,
     left: '50%',
     transform: 'translateX(-50%)',
     display: 'flex',

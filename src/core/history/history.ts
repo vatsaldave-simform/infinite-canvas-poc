@@ -47,6 +47,28 @@ export interface History {
    * `null` when there is nothing to redo (and then the scene is left alone).
    */
   redo(): HistoryEntry | null;
+
+  /**
+   * Undo or redo until the present is at `target`, one entry at a time. A
+   * target outside history stops at its nearest end. Returns the last entry
+   * it applied, or `null` when the present was already there.
+   */
+  goTo(target: number): HistoryEntry | null;
+
+  /**
+   * Where the document stands: how many entries are in the past. 0 is the
+   * document as loaded; `getCount()` is the latest change.
+   */
+  getPresent(): number;
+
+  /** How many entries there are, past and future together. */
+  getCount(): number;
+
+  /**
+   * Register a listener called whenever the present or the count changes.
+   * Returns an unsubscribe function that removes this listener.
+   */
+  subscribe(listener: () => void): () => void;
 }
 
 /**
@@ -56,6 +78,11 @@ export interface History {
 export function createHistory(store: SceneStore): History {
   const undoStack: HistoryEntry[] = [];
   let redoStack: HistoryEntry[] = [];
+  const listeners = new Set<() => void>();
+
+  const notify = () => {
+    listeners.forEach((listener) => listener());
+  };
 
   // Put the scene back as it was before the entry's change.
   const revert = (entry: HistoryEntry) => {
@@ -89,27 +116,64 @@ export function createHistory(store: SceneStore): History {
     }
   };
 
+  const undo = (): HistoryEntry | null => {
+    const entry = undoStack.pop();
+    if (!entry) return null;
+
+    revert(entry);
+    redoStack.push(entry);
+    notify();
+    return entry;
+  };
+
+  const redo = (): HistoryEntry | null => {
+    const entry = redoStack.pop();
+    if (!entry) return null;
+
+    apply(entry);
+    undoStack.push(entry);
+    notify();
+    return entry;
+  };
+
+  const goTo = (target: number): HistoryEntry | null => {
+    let lastApplied: HistoryEntry | null = null;
+
+    // Each step is a real undo or redo, so the store hears every one. Stops
+    // at either end of history, which is what keeps `target` in range.
+    while (undoStack.length > target) {
+      const entry = undo();
+      if (!entry) break;
+      lastApplied = entry;
+    }
+    while (undoStack.length < target) {
+      const entry = redo();
+      if (!entry) break;
+      lastApplied = entry;
+    }
+
+    return lastApplied;
+  };
+
   return {
     record(entry) {
       undoStack.push(entry);
       // History is linear: a new change throws away anything undone.
       redoStack = [];
+      notify();
     },
-    undo() {
-      const entry = undoStack.pop();
-      if (!entry) return null;
-
-      revert(entry);
-      redoStack.push(entry);
-      return entry;
+    undo,
+    redo,
+    goTo,
+    getPresent() {
+      return undoStack.length;
     },
-    redo() {
-      const entry = redoStack.pop();
-      if (!entry) return null;
-
-      apply(entry);
-      undoStack.push(entry);
-      return entry;
+    getCount() {
+      return undoStack.length + redoStack.length;
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
     },
   };
 }

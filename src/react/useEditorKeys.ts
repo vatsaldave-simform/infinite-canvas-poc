@@ -1,10 +1,12 @@
 import { useEffect, type RefObject } from "react";
 import type { SceneStore } from "@core/scene";
 import type { EditorStore } from "@core/editor";
-import type { History, HistoryEntry } from "@core/history";
+import type { History } from "@core/history";
+import { selectEntryElement } from "./historySelection";
 
 interface EditorKeysParams {
-  canvasRef: RefObject<HTMLCanvasElement | null>;
+  /** Whether a pointer is pressed on the canvas; see useCanvasPress. */
+  canvasPressRef: RefObject<boolean>;
   store: SceneStore;
   editorStore: EditorStore;
   history: History;
@@ -28,49 +30,22 @@ function getAction(e: KeyboardEvent): EditorAction | null {
   return null;
 }
 
-/** The id of the element a history entry changed. */
-function getEntryElementId(entry: HistoryEntry): string {
-  switch (entry.kind) {
-    case "add":
-      return entry.element.id;
-    case "replace":
-      return entry.after.id;
-    case "remove":
-      return entry.element.id;
-  }
-}
-
 /**
  * The editor's keyboard shortcuts, in any tool:
  * - Delete or Backspace deletes the selected element and clears the selection.
  * - Ctrl/Cmd+Z undoes; Ctrl/Cmd+Shift+Z or Ctrl+Y redoes.
  *
  * All of them are ignored while a pointer is pressed on the canvas, so none
- * can cut into a move, a resize, or a shape being drawn. This hook tracks that
- * press itself rather than asking the tools. Held keys repeat, so holding
- * Ctrl+Z keeps undoing.
+ * can cut into a move, a resize, or a shape being drawn. Held keys repeat, so
+ * holding Ctrl+Z keeps undoing.
  */
 export function useEditorKeys({
-  canvasRef,
+  canvasPressRef,
   store,
   editorStore,
   history,
 }: EditorKeysParams) {
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    let pressing = false;
-
-    const onPointerDown = (e: PointerEvent) => {
-      // Only the left button starts a gesture in any tool.
-      if (e.button === 0) pressing = true;
-    };
-
-    const onPointerEnd = () => {
-      pressing = false;
-    };
-
     const deleteSelected = () => {
       const selectedId = editorStore.getSelectedId();
       if (selectedId === null) return;
@@ -86,30 +61,21 @@ export function useEditorKeys({
       editorStore.select(null);
     };
 
-    // After an undo or redo, select the element the entry changed if it is in
-    // the scene now, so you see what changed. Otherwise clear the selection,
-    // so it never points at a missing element.
-    const selectEntryElement = (entry: HistoryEntry) => {
-      const id = getEntryElementId(entry);
-      const inScene = store.getScene().some((element) => element.id === id);
-      editorStore.select(inScene ? id : null);
-    };
-
     const undo = () => {
       const entry = history.undo();
       // Nothing to undo: leave the selection alone.
-      if (entry) selectEntryElement(entry);
+      if (entry) selectEntryElement(entry, store, editorStore);
     };
 
     const redo = () => {
       const entry = history.redo();
-      if (entry) selectEntryElement(entry);
+      if (entry) selectEntryElement(entry, store, editorStore);
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
       const action = getAction(e);
       if (action === null) return;
-      if (pressing) return;
+      if (canvasPressRef.current) return;
 
       // Ours now, so the browser's own Ctrl+Z / Ctrl+Y never runs as well.
       e.preventDefault();
@@ -127,17 +93,7 @@ export function useEditorKeys({
       }
     };
 
-    canvas.addEventListener("pointerdown", onPointerDown);
-    // Listen on window so a release anywhere ends the press, even one the
-    // canvas didn't capture.
-    window.addEventListener("pointerup", onPointerEnd);
-    window.addEventListener("pointercancel", onPointerEnd);
     window.addEventListener("keydown", onKeyDown);
-    return () => {
-      canvas.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("pointerup", onPointerEnd);
-      window.removeEventListener("pointercancel", onPointerEnd);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [canvasRef, store, editorStore, history]);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [canvasPressRef, store, editorStore, history]);
 }

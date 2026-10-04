@@ -227,6 +227,193 @@ describe("createHistory", () => {
     expect(store.getScene()).toEqual([aRectangle("a", 20), aRectangle("b", 5)]);
   });
 
+  describe("the present and the count", () => {
+    it("start at zero", () => {
+      const history = createHistory(createSceneStore());
+
+      expect(history.getPresent()).toBe(0);
+      expect(history.getCount()).toBe(0);
+    });
+
+    it("both move up when a change is recorded", () => {
+      const history = createHistory(createSceneStore([aRectangle("a")]));
+      history.record({ kind: "add", element: aRectangle("a"), index: 0 });
+
+      expect(history.getPresent()).toBe(1);
+      expect(history.getCount()).toBe(1);
+    });
+
+    it("undo moves the present back and keeps the count", () => {
+      const history = createHistory(createSceneStore([aRectangle("a")]));
+      history.record({ kind: "add", element: aRectangle("a"), index: 0 });
+
+      history.undo();
+
+      expect(history.getPresent()).toBe(0);
+      expect(history.getCount()).toBe(1);
+    });
+
+    it("redo moves the present forward and keeps the count", () => {
+      const history = createHistory(createSceneStore([aRectangle("a")]));
+      history.record({ kind: "add", element: aRectangle("a"), index: 0 });
+      history.undo();
+
+      history.redo();
+
+      expect(history.getPresent()).toBe(1);
+      expect(history.getCount()).toBe(1);
+    });
+  });
+
+  describe("subscribe", () => {
+    it("tells the listener about a record, an undo and a redo", () => {
+      const history = createHistory(createSceneStore([aRectangle("a")]));
+      let calls = 0;
+      history.subscribe(() => {
+        calls += 1;
+      });
+
+      history.record({ kind: "add", element: aRectangle("a"), index: 0 });
+      expect(calls).toBe(1);
+      history.undo();
+      expect(calls).toBe(2);
+      history.redo();
+      expect(calls).toBe(3);
+    });
+
+    it("stays quiet when there is nothing to undo or redo", () => {
+      const history = createHistory(createSceneStore());
+      let calls = 0;
+      history.subscribe(() => {
+        calls += 1;
+      });
+
+      history.undo();
+      history.redo();
+
+      expect(calls).toBe(0);
+    });
+
+    it("stops telling the listener once it unsubscribes", () => {
+      const history = createHistory(createSceneStore([aRectangle("a")]));
+      let calls = 0;
+      const unsubscribe = history.subscribe(() => {
+        calls += 1;
+      });
+
+      unsubscribe();
+      history.record({ kind: "add", element: aRectangle("a"), index: 0 });
+
+      expect(calls).toBe(0);
+    });
+  });
+
+  describe("goTo", () => {
+    // Three moves of "a": x 0 → 10 → 20 → 30. The present ends at 3.
+    const moveThreeTimes = () => {
+      const store = createSceneStore([aRectangle("a", 30)]);
+      const history = createHistory(store);
+      const moves = [
+        { kind: "replace" as const, before: aRectangle("a", 0), after: aRectangle("a", 10) },
+        { kind: "replace" as const, before: aRectangle("a", 10), after: aRectangle("a", 20) },
+        { kind: "replace" as const, before: aRectangle("a", 20), after: aRectangle("a", 30) },
+      ];
+      moves.forEach((move) => history.record(move));
+      return { store, history, moves };
+    };
+
+    it("going back undoes until the present is there", () => {
+      const { store, history } = moveThreeTimes();
+
+      history.goTo(1);
+
+      expect(history.getPresent()).toBe(1);
+      expect(store.getScene()).toEqual([aRectangle("a", 10)]);
+    });
+
+    it("going back returns the last entry it undid", () => {
+      const { history, moves } = moveThreeTimes();
+
+      // Undoes the third move, then the second.
+      expect(history.goTo(1)).toBe(moves[1]);
+    });
+
+    it("going forward redoes until the present is there", () => {
+      const { store, history } = moveThreeTimes();
+      history.goTo(0);
+
+      history.goTo(2);
+
+      expect(history.getPresent()).toBe(2);
+      expect(store.getScene()).toEqual([aRectangle("a", 20)]);
+    });
+
+    it("going forward returns the last entry it redid", () => {
+      const { history, moves } = moveThreeTimes();
+      history.goTo(0);
+
+      // Redoes the first move, then the second.
+      expect(history.goTo(2)).toBe(moves[1]);
+    });
+
+    it("going to the present does nothing and returns null", () => {
+      const { store, history } = moveThreeTimes();
+      const scene = store.getScene();
+      let calls = 0;
+      history.subscribe(() => {
+        calls += 1;
+      });
+
+      expect(history.goTo(3)).toBeNull();
+      expect(store.getScene()).toBe(scene);
+      expect(calls).toBe(0);
+    });
+
+    it("going before the start stops at the document as loaded", () => {
+      const { store, history, moves } = moveThreeTimes();
+
+      expect(history.goTo(-5)).toBe(moves[0]);
+      expect(history.getPresent()).toBe(0);
+      expect(store.getScene()).toEqual([aRectangle("a", 0)]);
+    });
+
+    it("going past the end stops at the latest change", () => {
+      const { store, history, moves } = moveThreeTimes();
+      history.goTo(0);
+
+      expect(history.goTo(99)).toBe(moves[2]);
+      expect(history.getPresent()).toBe(3);
+      expect(store.getScene()).toEqual([aRectangle("a", 30)]);
+    });
+
+    it("tells the listener once per entry it applies", () => {
+      const { history } = moveThreeTimes();
+      let calls = 0;
+      history.subscribe(() => {
+        calls += 1;
+      });
+
+      // Two undos, and each one notifies.
+      history.goTo(1);
+
+      expect(calls).toBe(2);
+    });
+
+    it("recording after going back drops the future", () => {
+      const { store, history } = moveThreeTimes();
+      history.goTo(1);
+
+      // A new move from x = 10 to x = 50, made after going back.
+      store.replaceElement(aRectangle("a", 50));
+      history.record({ kind: "replace", before: aRectangle("a", 10), after: aRectangle("a", 50) });
+
+      expect(history.getPresent()).toBe(2);
+      expect(history.getCount()).toBe(2);
+      expect(history.goTo(3)).toBeNull();
+      expect(store.getScene()).toEqual([aRectangle("a", 50)]);
+    });
+  });
+
   describe("undoing everything", () => {
     // Each change is made the way the app makes it: write the store, then
     // record one entry, as the draw tool, select tool and delete key do.
@@ -293,6 +480,23 @@ describe("createHistory", () => {
       undoAll(history);
 
       redoAll(history);
+
+      expect(store.getScene()).toEqual(end);
+    });
+
+    it("goTo(0) gives back the starting scene", () => {
+      const { store, history, start } = makeChanges();
+
+      history.goTo(0);
+
+      expect(store.getScene()).toEqual(start);
+    });
+
+    it("then goTo(count) gives back the final scene", () => {
+      const { store, history, end } = makeChanges();
+      history.goTo(0);
+
+      history.goTo(history.getCount());
 
       expect(store.getScene()).toEqual(end);
     });
