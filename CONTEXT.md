@@ -171,6 +171,31 @@ special case that places it on top.
 > and the scene; *resize* and *delete* are editor actions; dragging a handle and
 > pressing a key are UI input.
 
+**Erase** — the editor action of rubbing out whatever the eraser's path passes
+over, at every depth in z-order, not just the topmost element. A freehand
+stroke loses only the parts the path crossed and is **split** into what is left
+either side. A rectangle or ellipse is removed whole when the path touches its
+outline; passing through its empty inside does nothing, since you erase what
+you can see. The document does not change until the gesture ends: until then
+the parts about to go are shown faded, and cancelling the gesture erases
+nothing. One erase gesture is one change, however many elements it touched.
+Erasing needs no selection. Contrast **delete**, which takes out the selected
+element.
+
+**Split** — the geometric operation underneath erasing a stroke: cutting one
+freehand stroke where the eraser crossed it, producing its pieces. A stroke the
+eraser crossed from end to end splits into no pieces at all.
+
+**Piece** — one of the freehand strokes a split leaves behind. Every piece is a
+new element with an identity of its own. None of them is "the original", which
+is gone. Pieces keep the original's style and stand where it stood in z-order.
+A piece too small for drawing to have accepted is not kept. Prefer "piece" to
+"segment", which already means the straight line between two neighbouring
+points of a stroke.
+
+> *Split* and *remove* are engine operations; *erase* is the editor action;
+> dragging the eraser is UI input.
+
 ---
 
 ## History
@@ -185,18 +210,23 @@ history.
 
 **Undo** / **Redo** — the editor actions of reverting the most recent change in
 history, and re-applying the most recently undone one. The unit is one whole
-editor action: one drawn element, one move, one resize, one delete. It is never
+editor action: one drawn element, one move, one resize, one delete, one erase. It is never
 the individual store writes a drag is made of. A gesture interrupted partway
 still counts as a change if it changed the document.
 
 **History entry** — one change recorded in history, described in terms of the
 scene operation it was: an **add**, a **replace** (before and after), or a
 **remove** (the element and where it stood in z-order). A move and a resize are
-both replaces; history does not know which gesture produced one. An entry is
+both replaces; history does not know which gesture produced one. When one
+editor action changes several elements, as an erase does, its entry is a
+**compound**: those operations in order, recorded and undone as one change.
+Undoing a compound reverts its operations in reverse order. An entry is
 plain data, not a *command*: it holds no behaviour of its own, and history
 decides how to undo and redo it. Undoing or redoing an entry also selects the
 element it touched, when that element is in the scene afterwards, and clears
-the selection otherwise.
+the selection otherwise. For a compound, that means: when exactly one of the
+elements it touched is in the scene afterwards, that one is selected;
+otherwise the selection is cleared, since only one element can be selected.
 
 **Timeline** — the editor's view of history: one mark per history entry, laid
 out in order, with the document's current place among them. It is not a second

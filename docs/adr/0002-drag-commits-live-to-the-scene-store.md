@@ -41,3 +41,15 @@ is M13's job, not `pointercancel`'s.
 Persistence (M9+) sees a drag as a rapid burst of scene changes, so whatever
 writes the scene to storage will need debouncing. It would have needed that for
 freehand drawing regardless.
+
+## Amendment — 2026-10-04
+
+**Scope.** This ADR is about moving and resizing elements, which are already in
+the scene. The eraser previews and commits on release, which can look like the
+draft-style preview rejected above. The reason for rejecting it does not apply
+there. An erase swaps whole elements for their pieces, so its preview is a
+whole **preview scene**: an ordinary scene array the render loop draws instead
+of the store's while the eraser is pressed. `renderScene` needs no "exclude
+this id" parameter, and nothing is double-drawn. Previewing is what lets the
+eraser show the parts about to go, faded, and lets a cancelled erase change
+nothing.

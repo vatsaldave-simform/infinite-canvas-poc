@@ -21,7 +21,7 @@ Infinite-canvas drawing POC (Excalidraw-style), a **learning project** built str
 | M12 | Resize + Delete | mix (waived) | ✅ done | [`m12-resize-delete.md`](m12-resize-delete.md) |
 | M13 | Undo/redo command stack | A (waived) | ✅ done | [`m13-undo-redo.md`](m13-undo-redo.md) |
 | M14 | History timeline — scrub the session's history to rewind and replay the document | Claude | ✅ done | [`m14-history-timeline.md`](m14-history-timeline.md) |
-| M15 | Splitting eraser — erasing across a freehand stroke cuts it into pieces | Claude | ⏳ next | — |
+| M15 | Splitting eraser — erasing across a freehand stroke cuts it into pieces | Claude | ⏳ next | [`m15-splitting-eraser.md`](m15-splitting-eraser.md) |
 | M16 | Sketch-to-shape — a rough freehand box or circle becomes a clean rectangle or ellipse | Claude | planned | — |
 | M17 | Off-screen beacons — screen-edge markers point to content out of view; clicking one flies there | Claude | planned | — |
 

@@ -60,3 +60,21 @@ restored element may land among elements added since. There is no defensive
 **History is not persisted,** so this ADR changes nothing on disk. If history
 ever had to survive a reload, that would be the moment to revisit event
 sourcing, because the log would then need persisting anyway.
+
+## Amendment — 2026-10-04
+
+The decision stands. The erase action is the first to change several elements
+at once: one gesture can split three strokes and remove a rectangle. Its entry
+is a **compound**: an ordered list of the same scene operations, recorded and
+undone as one change. Undo reverts them in reverse order; redo applies them in
+order.
+
+This is not the editor-action entry rejected above. A compound adds no new
+operation and knows nothing about the gesture that produced it, so history
+still has three operations whose inverses pair up, and any future action that
+changes several elements can use it unchanged. A split is "remove the stroke,
+then insert its pieces where it stood"; there is no `split` kind.
+
+The selection rule after an undo or redo generalises with it: select the one
+element the entry touched if exactly one of them is in the scene afterwards,
+otherwise clear the selection.
