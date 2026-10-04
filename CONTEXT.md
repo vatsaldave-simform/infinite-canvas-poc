@@ -164,7 +164,8 @@ the scene by identity. Knows nothing about selection.
 
 **Insert** — the scene operation that puts an element into the scene at a
 given place in z-order. It is how undo brings a deleted element back exactly
-where it was. *Adding* an element is the special case that places it on top.
+where it was, and how redo brings a drawn one back. *Adding* an element is the
+special case that places it on top.
 
 > The same layering again: *fit* and *remove* are engine operations on elements
 > and the scene; *resize* and *delete* are editor actions; dragging a handle and
@@ -193,5 +194,6 @@ scene operation it was: an **add**, a **replace** (before and after), or a
 **remove** (the element and where it stood in z-order). A move and a resize are
 both replaces; history does not know which gesture produced one. An entry is
 plain data, not a *command*: it holds no behaviour of its own, and history
-decides how to undo and redo it. Undoing an entry also selects the element it
-touched, when that element is still in the scene afterwards.
+decides how to undo and redo it. Undoing or redoing an entry also selects the
+element it touched, when that element is in the scene afterwards, and clears
+the selection otherwise.

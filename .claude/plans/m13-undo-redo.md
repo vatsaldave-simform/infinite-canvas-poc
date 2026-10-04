@@ -163,3 +163,57 @@ browser, and is one GitHub issue.
 | 2 | Undo/redo drawing | `insertElement` + store tests. `add` entries. `useDrawTool` records after `addElement`. |
 | 3 | Undo/redo delete | `removeElement` returns the index, with store tests. `remove` entries. The delete key records. The undo-everything test across all three kinds. |
 | 4 | Close-out | `ARCHITECTURE.md` "History" section and file map, the roadmap row, close-out notes here. Docs that describe code land after the code. |
+
+---
+
+## Close-out
+
+M13 is done. No decision above was reversed; what differs below is detail the
+decisions left open, or a small departure from their wording. The work went
+out as GitHub issues #14–#17, one per build-order slice, and in that order.
+The three code slices (#14–#16) each ran from core to the keys and were
+checked in the browser; #17 is this close-out. The Chrome
+extension was not connected for slices 2 and 3, so they were checked in a
+headless Chrome driven over the DevTools protocol, with real pointer and key
+events. Z-order cannot be seen with unfilled shapes, so the order was read back
+from the persisted IndexedDB record.
+
+**What differs from the plan, and why:**
+
+- **`getEntryElementId` sits in `useEditorKeys`.** Decision 15 puts the
+  selection rule in the key hook. Once there were three kinds, the hook needed
+  the entry's element id for each, so a small `switch` lives beside the rule.
+  It is not a method on history, which stays unaware of selection.
+- **The delete key records nothing if the selected id is not in the scene.**
+  It still clears the selection, as before. That way it never records a
+  `remove` holding index `-1`. Nothing in the app leads there; it is a guard,
+  not a feature.
+- **`addElement` is still its own append.** Decision 13 calls add the special
+  case of insert, and the glossary says so, but the code does not route
+  `addElement` through `insertElement`. The draw tool takes the index of the
+  element it just added as the last one, `getScene().length - 1`.
+- **`insertElement` does not check its index.** That follows decision 11:
+  there is no "entry no longer applies" path, and every caller passes an index
+  history recorded.
+- **The backstop drives the store, not the hooks.** The undo-everything test
+  in `history.test.ts` copies each owner's recording in small helpers, because
+  the React hooks have no tests (core tests run in node, ADR-0001). It was
+  checked by breaking the code on purpose. Dropping a record call from one of
+  its helpers fails it, and so does restoring a delete on top. A hook that
+  forgot to record would not. Its first version missed the second case:
+  every element above the deleted one was later undone away, so the element
+  came back on top and still looked right. The starting scene now keeps an
+  element above it for the whole run.
+- **Only one `switch` is compiler-checked.** The `switch (entry.kind)` in
+  history's private `revert` and `apply` returns nothing, so `tsc` would not
+  flag a missing case for a new kind. `getEntryElementId` returns a string, so
+  it would. The undo-everything test would catch a missing case in the other
+  two only once it is extended to use the new kind.
+- **The glossary needed one correction.** "History entry" said only *undoing*
+  selects the entry's element. The rule applies after redo too, and "Insert"
+  now says it serves redoing a draw as well as undoing a delete.
+
+**Still open (non-goals, can be picked up any time):** undo and redo buttons,
+which would need history to grow a `subscribe` so they can redraw when "can
+undo" changes. Shift/Alt resize modifiers and arrow-key nudge are still open
+from earlier milestones.

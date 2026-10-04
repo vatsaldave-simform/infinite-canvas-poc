@@ -81,15 +81,22 @@ Drawing uses **pointer** events (`src/react/useDrawTool.ts`), so it never collid
 
 - `getScene()` returns a referentially-stable snapshot (same array until a real mutation).
 - `addElement(el)` appends **immutably** (new array) and notifies subscribers.
+- `insertElement(el, index)` puts an element in at a given index, so at that
+  depth in z-order, with the others keeping their order. Undoing a delete uses
+  it to bring the element back where it stood, and redoing a draw uses it too
+  (see *History*). Adding is, conceptually, inserting on top, though
+  `addElement` is still its own append.
 - `replaceElement(next)` swaps the element with `next.id` for `next`, keeping
   its **array index** — a move must never change z-order. An unknown id is a
   no-op that returns the *same* array, so the snapshot stays stable.
-- `removeElement(id)` takes the element out, keeping the rest in order. It
-  follows `replaceElement`'s contract: an unknown id keeps the same array and
-  notifies no one.
+- `removeElement(id)` takes the element out, keeping the rest in order, and
+  **returns the index it removed from**, so the removal can be undone at the
+  same depth. Taking the index from the removal itself leaves no gap between
+  finding and removing. It follows `replaceElement`'s contract: an unknown id
+  keeps the same array, notifies no one, and returns `-1`.
 - `subscribe(fn)` registers a listener, returns an unsubscribe.
 
-Nothing binds the store through `useSyncExternalStore`: `usePanZoom` subscribes directly and copies each snapshot into a ref, repainting through rAF, so committing a shape never re-renders `CanvasBoard` or the toolbar. The stability contract documented in `store.ts` is what *would* make `useSyncExternalStore` safe if a component ever needs to read the scene during render. Immutable updates + stable snapshots are what make change-detection cheap and keep the door open for undo later.
+Nothing binds the store through `useSyncExternalStore`: `usePanZoom` subscribes directly and copies each snapshot into a ref, repainting through rAF, so committing a shape never re-renders `CanvasBoard` or the toolbar. The stability contract documented in `store.ts` is what *would* make `useSyncExternalStore` safe if a component ever needs to read the scene during render. Immutable updates + stable snapshots are what make change-detection cheap, and the frozen-element rule is what lets a history entry hold an element by reference (see *History*).
 
 ### Selection & editor state
 
@@ -129,8 +136,8 @@ The move **commits live** — each `pointermove` goes straight through
 `store.replaceElement`, so the scene is always the truth and the highlight,
 hit-testing and renderer follow with no second source of position and no
 explicit repaint call. `pointercancel` leaves the element where it landed.
-See `docs/adr/0002-drag-commits-live-to-the-scene-store.md`; note its
-consequence for M13 (history is captured per *gesture*, not per mutation).
+See `docs/adr/0002-drag-commits-live-to-the-scene-store.md`. However many
+writes a drag makes, history records it once, when it ends (see *History*).
 
 `src/core/scene/translate.ts` holds the geometry: `translateElement(el, delta)`
 returns a new element offset by `delta`. It needs no per-type `switch` — every
@@ -213,29 +220,118 @@ units, because it is a rule about the document, not about pointing precision.
 
 Delete or Backspace (the delete key on a Mac keyboard) deletes the selected
 element **in any tool**, so "draw, oops, delete" works straight after
-auto-select. That is why it lives in its own small hook, `src/react/useEditorKeys.ts`,
-rather than in `useSelectTool`, which only runs in the select tool.
-There is no toolbar button: the toolbar holds tools only.
+auto-select. That is why it lives in `src/react/useEditorKeys.ts`, the hook
+for the shortcuts that work in any tool, rather than in `useSelectTool`, which
+only runs in the select tool. There is no toolbar button: the toolbar holds tools only.
 
-- **Delete = remove + deselect.** The hook calls `store.removeElement(id)`,
-  then `editorStore.select(null)`. The scene store knows nothing about
-  selection.
+- **Delete = remove + record + deselect.** The hook calls
+  `store.removeElement(id)`, records a `remove` entry with the element and the
+  index it returned, then calls `editorStore.select(null)`. The scene store
+  knows nothing about selection or history.
 - **Ignored mid-press.** While a left-button press on the canvas is in progress
   (a move, a resize, a shape being drawn), the key does nothing. Otherwise
   Delete mid-draw would delete the *previous* element, and Delete mid-move
   would leave the outcome to how `replaceElement` happens to treat an unknown
   id. The hook keeps its own `pressing` flag, set by the canvas's `pointerdown`
   and cleared by `pointerup` / `pointercancel` on the window, rather than
-  sharing "is gesturing" state between hooks.
+  sharing "is gesturing" state between hooks. The same flag covers undo and
+  redo (see *History*).
 
-Nothing else is needed: `removeElement` notifies like every other mutation, so
-the render loop repaints and the persister saves the change.
+`removeElement` notifies like every other mutation, so the render loop
+repaints and the persister saves the change.
 
 ## Creating elements
 
 `src/core/scene/factory.ts` turns raw input into well-formed elements: assigns an `id` (`crypto.randomUUID()`), applies `DEFAULT_STYLE`, and **normalizes geometry**. `createRectangle` / `createEllipse` convert two drag corners to a non-negative origin + size (`normalizeRect`); `createFreehand` converts a run of absolute world points into an origin + relative offsets (`freehandGeometry`). The types permit signed width/height mid-drag; normalization happens here at creation time.
 
-Draw flow (`useDrawTool`): the toolbar picks a tool (`rectangle` / `ellipse` / `freehand`, plus `select` — see *Selection & editor state*). Rectangle and ellipse are two-corner drags (`pointerdown` start → `pointermove` resize); freehand captures a point per `pointermove`. Either way a *draft* element is kept in a ref and painted on top; `pointerup` finalizes via the factory and commits with `store.addElement`. Tiny drags / too-few points are ignored (no shape under `MIN_ELEMENT_SIZE`, see *Resizing*).
+Draw flow (`useDrawTool`): the toolbar picks a tool (`rectangle` / `ellipse` / `freehand`, plus `select` — see *Selection & editor state*). Rectangle and ellipse are two-corner drags (`pointerdown` start → `pointermove` resize); freehand captures a point per `pointermove`. Either way a *draft* element is kept in a ref and painted on top; `pointerup` finalizes via the factory, commits with `store.addElement` and records an `add` entry (see *History*). Tiny drags / too-few points are ignored (no shape under `MIN_ELEMENT_SIZE`, see *Resizing*), so they commit and record nothing.
+
+## History
+
+Ctrl/Cmd+Z undoes the last change to the document; Ctrl/Cmd+Shift+Z or Ctrl+Y
+redoes it. A change is one whole editor action: a drawn element, a move, a
+resize or a delete, however many store writes it took. The vocabulary
+(history, undo, redo, history entry) is in `CONTEXT.md`, the decisions are in
+`.claude/plans/m13-undo-redo.md`, and the design choice is ADR-0005
+(`docs/adr/0005-history-records-scene-operations.md`).
+
+**The store stays the source of truth.** History is a log *about* the scene,
+not the thing the scene is rebuilt from: this is not event sourcing (ADR-0005
+records why). `createHistory(store)` in `src/core/history/history.ts` binds to
+the scene store when it is created, like the persister, but only keeps a
+reference to it: it never subscribes. It keeps two stacks. `record(entry)`
+pushes onto the undo stack and empties the redo stack, so history is
+**linear**. `undo()` and `redo()` apply an entry through the store and return
+it, or return `null` and touch nothing when there is nothing to apply. History
+is plain core code, with no DOM and no React, tested in node. It has no
+`subscribe` of its own: with no undo or redo buttons, nothing needs to redraw
+when "can undo" changes.
+
+**Entries are scene operations, as plain data.** An entry says what happened to
+the scene, not which gesture did it, and holds no behaviour; history
+interprets it with a `switch` on `kind`:
+
+| Entry | Holds | Undo | Redo |
+|---|---|---|---|
+| `add` | element, index | `removeElement(id)` | `insertElement(element, index)` |
+| `replace` | before, after | `replaceElement(before)` | `replaceElement(after)` |
+| `remove` | element, index | `insertElement(element, index)` | `removeElement(id)` |
+
+The inverses pair up: add and remove are mirror images, and replace swaps
+before and after. A move and a resize are both a `replace`. Redoing an `add`
+inserts rather than appends, so it keeps that mirror. Entries hold elements
+by reference. That is safe because a committed element is never mutated in
+place (the frozen rule in `CONTEXT.md`), so the element an entry holds is
+exactly the one that was in the scene.
+
+**Whoever owns an action records it, when it finishes.** Nothing subscribes
+to the store and diffs scenes. The store cannot know where a gesture ends
+(ADR-0002), and an undo writes through the same store, so a diffing history
+would hear its own undos as new changes.
+
+- `useSelectTool` records one `replace` when a move or resize ends, from the
+  element as pressed to the element as the drag left it. It records on
+  `pointercancel` too, because ADR-0002 leaves that change in place and it is
+  persisted. A click below the 3px arming threshold wrote nothing, so it
+  records nothing.
+- `useDrawTool` records one `add` after `addElement`, with the top index. A
+  cancelled or too-small draw commits nothing and records nothing.
+- `useEditorKeys` records one `remove` on delete, with the index
+  `removeElement` returned.
+
+Every future document change must record an entry too, or undo will skip it.
+A test in `history.test.ts` backs the pattern up: a run of draws, moves, a
+resize and deletes, undone completely, must give back the starting scene, and
+redone completely, the final one. It drives the store and history through
+small helpers that record the way each owner does, not through the React
+hooks, which have no tests. So it catches a wrong inverse or a helper that
+skips its record, but not a hook that forgets to record. For a new action,
+undoing everything in the browser is the check.
+
+**The keys** live in `useEditorKeys`, beside Delete: one keydown listener on the
+window and one `pressing` flag for Delete, Backspace, undo and redo. Escape
+stays in `useSelectTool`, because deselecting only means something there.
+
+- **Ignored mid-press,** like Delete. Otherwise undo would revert the
+  *previous* entry while a live drag kept writing over it.
+- **Handled keys call `preventDefault`,** so the browser's own Ctrl+Z / Ctrl+Y
+  does not run as well. A key ignored mid-press is not handled, so it does not
+  call it. Held keys repeat, and each repeat applies one more entry.
+- **Selection follows the entry.** After an undo or redo, the element the
+  entry changed is selected if it is in the scene now, otherwise the selection
+  is cleared, so it never points at a missing id. Undoing a move or a delete
+  selects that element; undoing a draw, or redoing a delete, clears the
+  selection. With nothing to apply, the selection is left alone. The rule
+  lives in the hook, because history never sees the editor store.
+
+**What history leaves out.** Selection, the tool and the viewport are editor
+state and are not undoable. History is never persisted, so a reload starts
+with empty history; it has no size limit, since an entry is a few references
+to frozen elements. Persistence needed nothing new: undo and redo write
+through the store, which notifies, and the debounced persister saves the
+result, so a burst of held-key undos becomes one write. The dev diagnostics'
+`fill` adds elements without recording; an entry assumes the scene is as
+history left it, and that is accepted for a dev tool.
 
 ## Persistence
 
@@ -352,7 +448,7 @@ src/
 ├── core/
 │   ├── scene/
 │   │   ├── types.ts             SceneElement union, Scene (z-order = array order)
-│   │   ├── store.ts             createSceneStore — observable scene state
+│   │   ├── store.ts             createSceneStore — observable scene state; add/insert/replace/remove
 │   │   ├── factory.ts           createRectangle/Ellipse/Freehand, normalizeRect, DEFAULT_STYLE
 │   │   ├── hit-test.ts          hitTest (back-to-front) + per-type point tests
 │   │   ├── bounds.ts            getBoundingBox — world-space bbox per element
@@ -362,6 +458,9 @@ src/
 │   ├── editor/
 │   │   ├── store.ts             createEditorStore — observable selection state
 │   │   └── index.ts             barrel → @core/editor
+│   ├── history/
+│   │   ├── history.ts           createHistory — undo/redo stacks of add/replace/remove entries
+│   │   └── index.ts             barrel → @core/history
 │   ├── persistence/
 │   │   ├── format.ts            StoredDocument envelope, FORMAT_VERSION, QuarantineRecord
 │   │   ├── indexed-db.ts        openDatabase, read/write/delete/quarantine the document
@@ -379,11 +478,11 @@ src/
 │       └── index.ts             barrel → @core/canvas
 └── react/
     ├── DocumentLoader.tsx       Suspense gate on the load; picks the board's notices
-    ├── CanvasBoard.tsx          owns <canvas> + sizing; wires store, toolbar, tools, persistence
+    ├── CanvasBoard.tsx          owns <canvas> + sizing; wires store, history, toolbar, tools, persistence
     ├── usePanZoom.ts            viewport state, wheel input, render loop
-    ├── useDrawTool.ts           pointer-drag shape creation
-    ├── useSelectTool.ts         click-to-select, drag-to-move, drag-a-handle-to-resize
-    ├── useEditorKeys.ts         Delete/Backspace deletes the selection, any tool
+    ├── useDrawTool.ts           pointer-drag shape creation; records add
+    ├── useSelectTool.ts         click-to-select, drag-to-move, drag-a-handle-to-resize; records replace
+    ├── useEditorKeys.ts         editor shortcuts, any tool: delete, undo, redo; selection after both
     ├── usePersistence.ts        mounts the persister, flushes on hide, returns persist status
     ├── useDiagnostics.ts        dev-only window.canvasDiagnostics handle
     ├── pointer.ts               pointerToScreen / pointerToWorld — shared event → point
