@@ -1,14 +1,17 @@
 import { useEffect, type RefObject } from "react";
 import type { Viewport } from "@core/canvas";
 import {
-  getTouchedElements,
+  createErasure,
+  eraseAlong,
+  getErasePreview,
+  isErased,
+  type ErasePreview,
+  type Erasure,
   type Point,
-  type Scene,
-  type SceneElement,
   type SceneStore,
 } from "@core/scene";
 import type { EditorStore } from "@core/editor";
-import type { History, SceneOperation } from "@core/history";
+import { applyErase, type History } from "@core/history";
 import { pointerToWorld } from "./pointer";
 
 /** The eraser's radius, in SCREEN px; divided by scale → world units, like slop. */
@@ -25,16 +28,6 @@ const ERASER_CURSOR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="${CURS
 </svg>`;
 const ERASER_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(ERASER_CURSOR_SVG)}") ${CURSOR_CENTER} ${CURSOR_CENTER}, crosshair`;
 
-/**
- * What the canvas draws instead of the store's scene while the eraser is
- * pressed: the scene without the elements about to be erased, and those
- * elements, drawn faded beneath it.
- */
-export interface ErasePreview {
-  scene: Scene;
-  erased: SceneElement[];
-}
-
 interface EraserToolParams {
   canvasRef: RefObject<HTMLCanvasElement | null>;
   viewportRef: RefObject<Viewport>;
@@ -49,12 +42,15 @@ interface EraserToolParams {
 }
 
 /**
- * The eraser: drag across shapes to erase every one whose outline the
- * pointer's path passes within the eraser's radius of, at any depth.
+ * The eraser: drag across the canvas to erase whatever the pointer's path
+ * passes within the eraser's radius of, at any depth. A freehand stroke is cut
+ * where the path crosses it, leaving its pieces either side; a rectangle or
+ * ellipse is removed whole when the path touches its outline.
  *
  * While pressed, the store is left alone and the canvas draws a preview
- * instead, with the elements about to go faded. Releasing removes them all
- * and records one compound history entry, so one undo brings them all back.
+ * instead, with the pieces in place of each cut stroke and the parts about to
+ * go faded beneath. Releasing makes the erase in the store and records one
+ * compound history entry, so one undo brings everything back.
  * Pointercancel, or Escape while pressed, throws the preview away and erases
  * nothing. An erase that touched nothing records nothing.
  *
@@ -82,57 +78,30 @@ export function useEraserTool({
     let lastPoint: Point | null = null;
     // The pointer erasing right now, or null when not pressed.
     let pointerId: number | null = null;
-    // The ids of every element this gesture has touched so far.
-    let touchedIds = new Set<string>();
+    // What this gesture has erased so far.
+    let erasure: Erasure = createErasure();
 
-    // Split the scene into what the erase will leave and what it will remove.
-    const showPreview = () => {
-      const scene: Scene = [];
-      const erased: SceneElement[] = [];
-      for (const element of store.getScene()) {
-        if (touchedIds.has(element.id)) {
-          erased.push(element);
-        } else {
-          scene.push(element);
-        }
-      }
-      previewRef.current = { scene, erased };
+    // Erase along one more stretch of the path, in the preview only: the
+    // store is untouched until release. The radius is worked out at the
+    // current zoom, so the eraser is the same size on screen at every scale.
+    const eraseStretch = (path: Point[]) => {
+      const radius = ERASER_RADIUS_PX / viewportRef.current.scale;
+      const erasedSomething = eraseAlong(store.getScene(), erasure, path, radius);
+      if (!erasedSomething) return;
+
+      previewRef.current = getErasePreview(store.getScene(), erasure);
       scheduleRender();
     };
 
-    // Touch whatever the path passes over. Nothing is erased until release. The radius is worked out at the
-    // current zoom, so the eraser is the same size on screen at every scale.
-    const touchAlong = (path: Point[]) => {
-      const radius = ERASER_RADIUS_PX / viewportRef.current.scale;
-      const touched = getTouchedElements(store.getScene(), path, radius);
-
-      let touchedSomethingNew = false;
-      for (const element of touched) {
-        if (!touchedIds.has(element.id)) {
-          touchedIds.add(element.id);
-          touchedSomethingNew = true;
-        }
-      }
-      if (touchedSomethingNew) showPreview();
-    };
-
-    // Remove every touched element and record them as one change. Each one
-    // is removed where it stands at that moment, so undo, which puts them back
-    // last first, returns each one to its old depth.
+    // Make the erase in the store and record it as one change.
     const commit = () => {
-      if (touchedIds.size === 0) return;
-
-      const operations: SceneOperation[] = [];
-      for (const element of store.getScene()) {
-        if (!touchedIds.has(element.id)) continue;
-        const index = store.removeElement(element.id);
-        operations.push({ kind: "remove", element, index });
-      }
-      history.record({ kind: "compound", operations });
+      const entry = applyErase(store, erasure);
+      if (!entry) return;
+      history.record(entry);
 
       // The selection must never point at an element that is gone.
       const selectedId = editorStore.getSelectedId();
-      if (selectedId !== null && touchedIds.has(selectedId)) {
+      if (selectedId !== null && isErased(erasure, selectedId)) {
         editorStore.select(null);
       }
     };
@@ -145,7 +114,7 @@ export function useEraserTool({
       }
       lastPoint = null;
       pointerId = null;
-      touchedIds = new Set();
+      erasure = createErasure();
       previewRef.current = null;
       scheduleRender();
     };
@@ -157,23 +126,23 @@ export function useEraserTool({
 
       pointerId = e.pointerId;
       lastPoint = pointerToWorld(canvas, e, viewportRef.current);
-      touchAlong([lastPoint]);
+      eraseStretch([lastPoint]);
     };
 
     const onPointerMove = (e: PointerEvent) => {
       if (!lastPoint || e.pointerId !== pointerId) return;
 
       // The path runs from the last sample to this one, so a fast drag that
-      // jumps over an outline still touches it.
+      // jumps over a line between samples still erases it.
       const point = pointerToWorld(canvas, e, viewportRef.current);
-      touchAlong([lastPoint, point]);
+      eraseStretch([lastPoint, point]);
       lastPoint = point;
     };
 
     const onPointerUp = (e: PointerEvent) => {
       if (!lastPoint || e.pointerId !== pointerId) return;
 
-      touchAlong([lastPoint, pointerToWorld(canvas, e, viewportRef.current)]);
+      eraseStretch([lastPoint, pointerToWorld(canvas, e, viewportRef.current)]);
       commit();
       endGesture();
     };

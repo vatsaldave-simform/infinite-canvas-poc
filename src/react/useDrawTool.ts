@@ -5,6 +5,7 @@ import {
   createEllipse,
   createFreehand,
   normalizeRect,
+  isTooSmallStroke,
   DEFAULT_STYLE,
   MIN_ELEMENT_SIZE,
   type FreehandElement,
@@ -93,23 +94,6 @@ export function useDrawTool({
       style: { ...DEFAULT_STYLE },
     })
 
-    // A stroke whose bounding box is sub-minimum on both axes is a stray click,
-    // not a mark. Unlike drag shapes, a single-axis freehand line is valid, so
-    // both dimensions must be tiny to reject it.
-    const isTinyStroke = (points: Point[]): boolean => {
-      let minX = points[0].x
-      let maxX = points[0].x
-      let minY = points[0].y
-      let maxY = points[0].y
-      for (const p of points) {
-        if (p.x < minX) minX = p.x
-        else if (p.x > maxX) maxX = p.x
-        if (p.y < minY) minY = p.y
-        else if (p.y > maxY) maxY = p.y
-      }
-      return maxX - minX < MIN_ELEMENT_SIZE && maxY - minY < MIN_ELEMENT_SIZE
-    }
-
     // Clear any in-progress draft and release capture. Shared by pointerup's
     // early returns and pointercancel.
     const clearDraft = (e: PointerEvent) => {
@@ -175,7 +159,7 @@ export function useDrawTool({
         const points = freehandPoints
         clearDraft(e)
         // Need a couple of points and a non-negligible span to form a stroke.
-        if (!points || points.length < 2 || isTinyStroke(points)) {
+        if (!points || isTooSmallStroke(points)) {
           scheduleRender()
           return
         }

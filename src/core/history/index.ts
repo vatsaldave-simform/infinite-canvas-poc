@@ -6,4 +6,5 @@ export {
   type SceneOperation,
 } from "./history";
 export { getEntrySelection } from "./selection";
+export { applyErase } from "./erase";
 export { createReplay, type Replay } from "./replay";

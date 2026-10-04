@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createErasure,
   createSceneStore,
   DEFAULT_STYLE,
+  eraseAlong,
+  type FreehandElement,
+  type Point,
   type RectangleElement,
   type SceneElement,
   type SceneStore,
 } from "@core/scene";
+import { applyErase } from "./erase";
 import { createHistory, type History } from "./history";
 
 const aRectangle = (id: string, x = 0): RectangleElement => ({
@@ -527,6 +532,27 @@ describe("createHistory", () => {
       history.record({ kind: "remove", element, index });
     };
 
+    // One erase gesture along `path`, committed as the eraser tool does.
+    const erase = (store: SceneStore, history: History, path: Point[]) => {
+      const erasure = createErasure();
+      eraseAlong(store.getScene(), erasure, path, 2);
+      const entry = applyErase(store, erasure);
+      if (entry) history.record(entry);
+    };
+
+    // A straight stroke from (0, 50) to (100, 50).
+    const aStroke = (id: string): FreehandElement => ({
+      id,
+      type: "freehand",
+      x: 0,
+      y: 50,
+      points: [
+        { x: 0, y: 0 },
+        { x: 100, y: 0 },
+      ],
+      style: { ...DEFAULT_STYLE },
+    });
+
     const undoAll = (history: History) => {
       while (history.undo()) {
         // keep undoing until there is nothing left
@@ -555,9 +581,26 @@ describe("createHistory", () => {
       remove(store, history, "a");
       change(store, history, aRectangle("x", -20)); // move
       remove(store, history, "c"); // on top
+      draw(store, history, aStroke("s"));
+      draw(store, history, aRectangle("d"));
+      // Cuts the stroke in two and removes "d", whose left edge is at x = 0.
+      erase(store, history, [
+        { x: 50, y: 40 },
+        { x: 50, y: 60 },
+        { x: 0, y: 5 },
+      ]);
 
       return { store, history, start, end: store.getScene() };
     };
+
+    it("includes an erase that cut the stroke and removed a rectangle", () => {
+      const { end } = makeChanges();
+
+      const ids = end.map((element) => element.id);
+      expect(ids).not.toContain("s");
+      expect(ids).not.toContain("d");
+      expect(end.filter((element) => element.type === "freehand")).toHaveLength(2);
+    });
 
     it("gives back the starting scene", () => {
       const { store, history, start } = makeChanges();

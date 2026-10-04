@@ -16,6 +16,7 @@ export {
   createFreehand,
   normalizeRect,
   freehandGeometry,
+  isTooSmallStroke,
   DEFAULT_STYLE,
 } from './factory'
 export {
@@ -26,8 +27,16 @@ export {
   hitTestFreehand,
   distanceToSegment,
 } from './hit-test'
-export { getBoundingBox, type Bounds } from './bounds'
-export { getTouchedElements } from './erase'
+export { getBoundingBox, getPointsBounds, type Bounds } from './bounds'
+export {
+  splitStroke,
+  createErasure,
+  eraseAlong,
+  getErasePreview,
+  isErased,
+  type Erasure,
+  type ErasePreview,
+} from './erase'
 export { translateElement } from './translate'
 export {
   MIN_ELEMENT_SIZE,

@@ -10,9 +10,8 @@ import {
   type Viewport,
 } from '@core/canvas'
 import { getBoundingBox } from '@core/scene'
-import type { Scene, SceneElement, SceneStore } from '@core/scene'
+import type { ErasePreview, Scene, SceneElement, SceneStore } from '@core/scene'
 import type { EditorStore } from '@core/editor'
-import type { ErasePreview } from './useEraserTool'
 
 /**
  * Owns the live Viewport, the wheel-driven pan/zoom input, and the rAF-batched

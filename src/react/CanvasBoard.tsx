@@ -1,12 +1,17 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { createSceneStore, type Scene, type SceneElement } from "@core/scene";
+import {
+  createSceneStore,
+  type ErasePreview,
+  type Scene,
+  type SceneElement,
+} from "@core/scene";
 import { createEditorStore } from "@core/editor";
 import { createHistory } from "@core/history";
 import { createWriteFaults } from "@core/persistence";
 import { usePanZoom } from "./usePanZoom";
 import { useDrawTool, type Tool } from "./useDrawTool";
 import { useSelectTool } from "./useSelectTool";
-import { useEraserTool, type ErasePreview } from "./useEraserTool";
+import { useEraserTool } from "./useEraserTool";
 import { useEditorKeys } from "./useEditorKeys";
 import { useCanvasPress } from "./useCanvasPress";
 import { useTimelineOpen } from "./useTimelineOpen";

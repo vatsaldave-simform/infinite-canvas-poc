@@ -5,6 +5,8 @@
  * here at creation time.
  */
 
+import { getPointsBounds } from "./bounds";
+import { MIN_ELEMENT_SIZE } from "./resize";
 import type {
   EllipseElement,
   ElementStyle,
@@ -96,4 +98,17 @@ export function createFreehand(
     ...freehandGeometry(worldPoints),
     style: { ...DEFAULT_STYLE, ...style },
   };
+}
+
+/**
+ * Whether a run of points is too small to keep as a stroke: fewer than two
+ * points, or a bounding box under MIN_ELEMENT_SIZE on both axes, which is a
+ * stray click rather than a mark. A line along one axis is fine, so both
+ * axes must be tiny.
+ */
+export function isTooSmallStroke(points: Point[]): boolean {
+  if (points.length < 2) return true;
+
+  const box = getPointsBounds(points);
+  return box.width < MIN_ELEMENT_SIZE && box.height < MIN_ELEMENT_SIZE;
 }

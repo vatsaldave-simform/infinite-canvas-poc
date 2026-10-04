@@ -1,10 +1,26 @@
-import type { SceneElement } from "./types";
+import type { Point, SceneElement } from "./types";
 
 export interface Bounds {
   x: number;
   y: number;
   width: number;
   height: number;
+}
+
+/** The smallest box holding every point. `points` must not be empty. */
+export function getPointsBounds(points: Point[]): Bounds {
+  let minX = points[0].x;
+  let maxX = points[0].x;
+  let minY = points[0].y;
+  let maxY = points[0].y;
+  for (const p of points) {
+    minX = Math.min(minX, p.x);
+    maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y);
+    maxY = Math.max(maxY, p.y);
+  }
+
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
 
 export function getBoundingBox(el: SceneElement): Bounds {
@@ -18,25 +34,8 @@ export function getBoundingBox(el: SceneElement): Bounds {
         height: el.height,
       };
     case "freehand": {
-      const points = el.points;
-      let minX = points[0].x;
-      let minY = points[0].y;
-      let maxX = points[0].x;
-      let maxY = points[0].y;
-
-      for (const p of points) {
-        if (p.x < minX) minX = p.x;
-        else if (p.x > maxX) maxX = p.x;
-        if (p.y < minY) minY = p.y;
-        else if (p.y > maxY) maxY = p.y;
-      }
-
-      return {
-        x: el.x + minX,
-        y: el.y + minY,
-        width: maxX - minX,
-        height: maxY - minY,
-      };
+      const box = getPointsBounds(el.points);
+      return { ...box, x: el.x + box.x, y: el.y + box.y };
     }
     default: {
       const exhaustive: never = el;
